@@ -54,18 +54,21 @@ This returned HTTP 200, and the subagent validated and pretty-printed the result
 
 15. **Reviewed the spec, answered the open questions, and got an implementation plan.** Before breaking the spec into tasks I had a principal-engineer style review run over it. It found three problems that would have quietly invalidated the benches: repeats replayed identical cached responses so variance was zero by construction, cost was not comparable across profiles because whichever ran first paid for shared queries, and the cache key left out inputs that change the prompt such as the rejection list and temperature. It also caught that cryptic grids have unchecked cells, which broke four places written against "every cell has two crossings", and that the .xd format embeds the answer in the clue line. I answered the four questions that were genuinely mine: cryptics are loaded and solved but the model-strategy decisions are made on the American stratum; the Guardian endpoint is used with a one-request-per-second ceiling and a hard limit of twenty; fixtures are four hand-picked pre-1965 puzzles with a provenance file plus two synthetic grids; and the CLI is called xw with crossword as an alias. The orchestrator set defaults for the rest and recorded all of it in docs/decisions/2026-09-03-spec-review.md, then had the spec revised to version 2 and an implementation plan written against the same decisions. The plan has 55 tasks in five waves, each small enough for one coding agent to finish first time, with explicit file ownership so builders can run in parallel. I set a session goal so the orchestrator keeps going until every wave is merged and passing.
 
+16. **Wave 0 merged: the contracts are frozen.** The first builder, running on the strongest model in its own git worktree, delivered the Docker scaffold and the frozen contracts in one branch: 105 files, every type, schema and CLI option the spec names, 45 stub modules that throw NotImplemented, two synthetic fixture grids, and 136 passing contract tests, all verified inside a throwaway container via scripts/preflight-docker.sh. A separate reviewer walked every acceptance criterion and passed it, judging all twelve documented deviations acceptable. Three things came out of the review and were fixed on main before opening wave 1: agent worktrees are now gitignored, the stubs contract test scans for stubs instead of holding a list that twenty-two builders would have fought over, and the session trailers the builder had put in commit messages were stripped to honour my no-attribution rule. The reviewer also confirmed the coverage thresholds would fail CI while the tree is stubs, so CI will run plain tests until wave 4. Next: wave 1, twenty-two tasks in parallel batches of eight.
+
 ## Current state
 
-Main is pushed to the public remote at https://github.com/bendechrai/crossword-agent. The repo contains:
+Main is pushed to the public remote at https://github.com/bendechrai/crossword-agent, and is at the wave-0 merge. The repo contains:
 - `.env` - holds NEBIUS_API_KEY, ignored by git
 - `.env.example` - template with NEBIUS_API_KEY placeholder for new users
-- `.gitignore` - excludes `.env` and `.env.*`, keeps `.env.example`
+- `.gitignore` - excludes `.env` and `.env.*`, keeps `.env.example`, and now also `.claude/worktrees/` and `.claude/`
 - `LICENSE` - MIT License, copyright 2026 Ben Dechrai
 - `models.json` - the fetched Nebius Token Factory model catalogue
 - `docs/model-selection.md` - model shortlist and reasoning for the Nebius catalogue
 - `docs/crossword-sources.md` - sources of machine-readable crossword puzzles, file formats, and npm parsers; top three by variety
 - `docs/crossword-algorithms.md` - survey of prior art in automated crossword solving and the recommended algorithm for the Node.js solver
 - `docs/spec.md` - system specification, version 2, architecture, CLI reference, event taxonomy, run-record schema, strategy profiles, milestones
-- `docs/plan.md` - implementation plan: 55 tasks in five waves with explicit file ownership for parallel builders
+- `docs/plan.md` - implementation plan: 55 tasks in five waves with explicit file ownership for parallel builders, now with a Status table tracking each task
 - `docs/decisions/2026-09-03-spec-review.md` - record of spec review findings and resolutions applied to v2
+- the codebase scaffold from wave 0: `package.json`, `Dockerfile`, `docker-compose.yml` and the Docker preflight tooling, `src/` with every contract and stub module, `schemas/` with the JSON schemas, and `test/` with the contract and unit tests
 - `DIARY.md` - this file
