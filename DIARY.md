@@ -38,6 +38,8 @@ This returned HTTP 200, and the subagent validated and pretty-printed the result
 
 8. **First commits and push.** I decided that the repo should be pushed regularly with descriptive commit messages, so anyone following along can see the history unfold rather than one big dump at the end. Commit messages carry no tool attribution trailers; that is a standing rule of mine. The first push went up as three logical commits: repository plumbing (.gitignore and LICENSE), the Nebius model catalogue, and this diary.
 
+9. **Chose the stack and started model selection.** I decided the solver will be written in Node.js. I had docs/model-selection.md generated from models.json with a script rather than by hand, so the numbers are exact: a table of the text-capable models with context, quantisation, prices per 1M tokens, rate limits, and reasoning/structured-output flags. From that I shortlisted three cheap models for a first pass - nvidia/Nemotron-3_5-Lightning, nvidia/Nemotron-3-Nano-Omni, and deepseek-ai/DeepSeek-V4-Flash-0731 - and three stronger ones - deepseek-ai/DeepSeek-V4-Pro, Qwen/Qwen3.5-397B-A17B, and zai-org/GLM-5.1 - weighting requests-per-minute heavily because a crossword solver makes many short calls.
+
 ## Current state
 
 Main is pushed to the public remote at https://github.com/bendechrai/crossword-agent. The repo contains:
@@ -45,4 +47,5 @@ Main is pushed to the public remote at https://github.com/bendechrai/crossword-a
 - `.gitignore` - excludes `.env` and `.env.*`, keeps `.env.example`
 - `LICENSE` - MIT License, copyright 2026 Ben Dechrai
 - `models.json` - the fetched Nebius Token Factory model catalogue
+- `docs/model-selection.md` - model shortlist and reasoning for the Nebius catalogue
 - `DIARY.md` - this file
