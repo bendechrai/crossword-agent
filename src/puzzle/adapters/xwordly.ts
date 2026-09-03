@@ -33,6 +33,16 @@
  *   rule this repo's `numbering.ts` uses); B19 says to recompute regardless
  *   and use the source numbers only for the mismatch check, which is what
  *   this module does.
+ * - The PUZ path's `unified.clues.across`/`unified.clues.down` are NOT
+ *   trustworthy as-is: `dist/puz-*.mjs`'s `parseClues` assumes the file's
+ *   flat clue-string section is pre-grouped "all across texts, then all down
+ *   texts", but the real `.puz` spec interleaves them by number (across
+ *   before down at a shared number). A spec-conformant file therefore gets
+ *   every clue after the first mis-assigned by the package. `puzSourceClues`
+ *   below reconstructs the true file order and re-zips it against this
+ *   repo's own (already-verified-matching) numbering; see its own comment
+ *   for the mechanism. Only `.puz` needs this - `.ipuz`/`.jpz` clues carry
+ *   their own explicit numbers and are attributed correctly by the package.
  *
  * `parsedBy` is always `"@xwordly/xword-parser"`: the package parses all
  * three formats this adapter is registered for.
@@ -42,7 +52,13 @@ import { parse as xwordlyParse } from '@xwordly/xword-parser';
 import type { Cell as XwordlyCell, Puzzle as XwordlyPuzzle } from '@xwordly/xword-parser';
 
 import { notFoundError } from '../../cli/exit.js';
-import { assertNumberingMatches, buildSlots, computeNumbering, type SourceClue } from '../numbering.js';
+import {
+  assertNumberingMatches,
+  buildSlots,
+  computeNumbering,
+  type Numbering,
+  type SourceClue,
+} from '../numbering.js';
 import type { Cell, PuzzleStyle, PuzzleWithSolution } from '../types.js';
 import type { PuzzleAdapter, PuzzleAdapterContext } from './index.js';
 
@@ -157,6 +173,57 @@ function sourceCluesFrom(unified: XwordlyPuzzle): SourceClue[] {
   return [...across, ...down];
 }
 
+/**
+ * True when `bytes` starts with a standard AcrossLite `.puz` header: the
+ * literal 11-byte magic string `"ACROSS&DOWN"` at offset 2 (checksum is the
+ * first 2 bytes, magic immediately follows), matching every `.puz` this
+ * adapter is ever handed (including a `.ipuz`/`.jpz` file misnamed `.puz`
+ * would fail this check and fall through to the general path below, which is
+ * the safer failure mode).
+ */
+function isPuzMagic(bytes: Buffer): boolean {
+  return bytes.length >= 13 && bytes.subarray(2, 13).toString('latin1') === 'ACROSS&DOWN';
+}
+
+/**
+ * `@xwordly/xword-parser`'s PUZ clue-string splitter (`dist/puz-*.mjs`,
+ * `parseClues`) assumes the file's flat clue-string section is already
+ * grouped as "every across text, in grid position order" followed by "every
+ * down text, in grid position order" - it walks the same sorted-position
+ * list twice (once filtering for across starts, once for down starts) and
+ * pulls the next unconsumed string off the flat array each time. The real
+ * AcrossLite `.puz` spec does not store clues that way: they are interleaved
+ * by number, across before down at a shared number (1A,1D,2D,3A,3D,...), so
+ * a spec-conformant file gets every clue after the first assigned to the
+ * wrong slot.
+ *
+ * This is fixable without a bespoke `.puz` reader: `parseClues`'s two passes
+ * only ever consume the flat array in file order and split it at a fixed
+ * index (the across count) - they never reorder it - so concatenating the
+ * package's own `across` and `down` arrays back together
+ * (`[...across, ...down]`) exactly recovers the ORIGINAL file-order flat
+ * clue-string list. Re-zipping that recovered list against this repo's own
+ * `numbering.runs` - which `assertNumberingMatches` has already proven
+ * matches the file's own numbering, and which is built in the identical
+ * spec order (row-major by cell, across before down at a shared cell,
+ * mirroring the PUZ format's own `assignClueNumbers`) - assigns every string
+ * to the run it actually belongs to.
+ */
+function puzSourceClues(unified: XwordlyPuzzle, numbering: Numbering): SourceClue[] {
+  const flatFileOrder = [...unified.clues.across, ...unified.clues.down].map((clue) => clue.text);
+  const runsInFileOrder = numbering.runs;
+  if (flatFileOrder.length !== runsInFileOrder.length) {
+    throw notFoundError(
+      `puz clue count ${flatFileOrder.length} does not match ${runsInFileOrder.length} numbered runs`,
+    );
+  }
+  return runsInFileOrder.map((run, i) => ({
+    number: run.number,
+    direction: run.direction,
+    text: flatFileOrder[i]!,
+  }));
+}
+
 function buildCells(
   blocks: ReadonlyArray<ReadonlyArray<boolean>>,
   numbers: ReadonlyArray<ReadonlyArray<number | null>>,
@@ -174,7 +241,11 @@ function buildCells(
   );
 }
 
-function toPuzzleWithSolution(unified: XwordlyPuzzle, ctx: XwordlyAdapterContext): PuzzleWithSolution {
+function toPuzzleWithSolution(
+  unified: XwordlyPuzzle,
+  ctx: XwordlyAdapterContext,
+  bytes: Buffer,
+): PuzzleWithSolution {
   const { blocks, solution, suppliedNumbers } = extractGrid(unified);
 
   // T7 (B19): the file's own numbering is only ever used for this mismatch
@@ -182,7 +253,12 @@ function toPuzzleWithSolution(unified: XwordlyPuzzle, ctx: XwordlyAdapterContext
   const numbering = computeNumbering(blocks, { minRun: MIN_RUN });
   assertNumberingMatches(numbering, suppliedNumbers);
 
-  const slots = buildSlots(numbering, sourceCluesFrom(unified), { minRun: MIN_RUN });
+  // `.puz`'s clue-string section needs its own reconstruction (see
+  // puzSourceClues's comment) because the package mis-splits it; `.ipuz`
+  // and `.jpz` clues are already correctly attributed to across/down by the
+  // package (each source clue carries its own explicit number).
+  const sourceClues = isPuzMagic(bytes) ? puzSourceClues(unified, numbering) : sourceCluesFrom(unified);
+  const slots = buildSlots(numbering, sourceClues, { minRun: MIN_RUN });
   const cells = buildCells(blocks, numbering.numbers);
 
   const title = ctx.title ?? unified.title;
@@ -220,6 +296,6 @@ export const xwordlyAdapter: PuzzleAdapter = {
         `failed to parse puzzle "${ctx.origin ?? ctx.id}": ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    return Promise.resolve(toPuzzleWithSolution(unified, ctx));
+    return Promise.resolve(toPuzzleWithSolution(unified, ctx, bytes));
   },
 };
