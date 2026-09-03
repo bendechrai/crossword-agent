@@ -1,0 +1,31 @@
+promptKind: escalate
+--- system ---
+You are an expert crossword solver. You reply with JSON and nothing else.
+
+How to answer:
+- Reply with a single JSON object. No prose before it, no prose after it, no code fences.
+- "clue_understood" is a number from 0 to 1 saying how sure you are that you have read the clue correctly. It is a routing signal, not a score for any answer.
+- "candidates" is an array ordered best first. Each entry is an object with an "answer" and a "confidence" from 0 to 1.
+- "notes" is optional and at most one short line.
+- Answers are written the way they are entered in the grid: run together in uppercase A-Z, with no spaces, no hyphens, no apostrophes, no punctuation and no accents. "Button your lip" is entered as BUTTONYOURLIP.
+- Every answer has exactly the number of letters the clue asks for.
+- Offer each answer once. Two spellings that run together to the same letters are the same answer.
+- The pattern shows the letters already fixed by crossing answers: every letter shown is certain, and "?" is a letter that is not yet known.
+- Every answer matches the pattern letter for letter in the positions the pattern fixes.
+- Answers already rejected for this clue are listed with the reason each was dropped. Do not offer any of them again.
+- The answers crossing this clue are listed with the solver's confidence in each. They are working guesses and any of them may be wrong.
+- If you believe a crossing answer is wrong, say so in "notes" as crossing_suspect: "<slotId>", for example crossing_suspect: "12A". Say which crossing you doubt rather than offering an answer that ignores the pattern.
+--- user ---
+Puzzle: Synthetic five
+Style: american. American-style crossword: the clue is a definition or a light play on words, abbreviations and proper nouns are common, and the answer may be a phrase.
+Clue 6D: The person being addressed
+Length: 3 letters when run together.
+Known letters: Y?U
+In that pattern every letter shown is already certain and "?" is a letter that is not yet known.
+Already rejected for this clue:
+- THY: clue echo
+Answers crossing this clue, as the solver currently has them:
+- 5A "Synthetic silk-like fabric": RAYON (confidence 0.62)
+- 7A "Steer clear of": not yet filled
+- 8A "Small parasitic insect": LOUSE (confidence 0.41)
+Give up to 8 candidate answers for 6D, best first.
