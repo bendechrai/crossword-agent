@@ -15,7 +15,8 @@ import { score as scoreFill } from '../../../src/eval/scorer.js';
 import { Grid } from '../../../src/grid/model.js';
 import { createDomainStore } from '../../../src/grid/domainStore.js';
 import type { DomainStore, GridSnapshot } from '../../../src/grid/types.js';
-import type { EscalationDecision } from '../../../src/policy/types.js';
+import { CliError, ExitCode } from '../../../src/cli/exit.js';
+import type { BudgetCap, EscalationDecision } from '../../../src/policy/types.js';
 import { ProfileObject, type Profile } from '../../../src/profiles/schema.js';
 import type { NormalisedPuzzleFile, Puzzle } from '../../../src/puzzle/types.js';
 import type { WordList } from '../../../src/validate/types.js';
@@ -23,6 +24,7 @@ import { solve, type SolveOrchestrationDeps } from '../../../src/solver/solve.js
 import type {
   Ac3Fn,
   RepairFn,
+  RepairOptions,
   SearchFn,
   SearchHooks,
   SolveFn,
@@ -147,10 +149,15 @@ function fakeService(opts: { empty?: ReadonlySet<string> } = {}): FakeService {
 
 interface FakeHooks extends SearchHooks {
   candidatesReturned: string[];
-  charges: Array<{ cap: string; amount: number }>;
+  charges: Array<{ cap: BudgetCap; amount: number }>;
 }
 
-function fakeHooks(): FakeHooks {
+/**
+ * `exceed` stands in for T19's tracker: it is asked, for every charge, which
+ * cap (if any) is now crossed. T38's real hooks can report a cap other than
+ * the one charged, so the fake can too.
+ */
+function fakeHooks(exceed?: (cap: BudgetCap, chargeCount: number) => BudgetCap | null): FakeHooks {
   const none: EscalationDecision = { action: 'none', reason: 'fake' };
   const hooks: FakeHooks = {
     candidatesReturned: [],
@@ -165,9 +172,9 @@ function fakeHooks(): FakeHooks {
     onSearchTermination(emptySlotIds): Promise<EscalationDecision[]> {
       return Promise.resolve(emptySlotIds.map(() => none));
     },
-    chargeBudget(cap, amount): { exceeded: null } {
+    chargeBudget(cap, amount): { exceeded: BudgetCap | null } {
       hooks.charges.push({ cap, amount });
-      return { exceeded: null };
+      return { exceeded: exceed?.(cap, hooks.charges.length) ?? null };
     },
   };
   return hooks;
@@ -618,5 +625,230 @@ describe('solve', () => {
       maxEditDistance: profile.repair.maxEditDistance,
       style: PUZZLE.style,
     });
+  });
+
+  it('ends with run:end, after the score phase closed its bracket', async () => {
+    const h = harness();
+    const result = await solve(h.deps, profileWith(), optionsWith());
+
+    const order = typesOf(h.events);
+    expect(order.at(-1)).toBe('run:end');
+    expect(order.at(-2)).toBe('phase:end');
+    const scoreEnd = h.events.at(-2);
+    if (scoreEnd?.type !== 'phase:end') throw new Error('phase:end missing');
+    expect(scoreEnd.phase).toBe('score');
+    expect(result.wallMs).toBe(0);
+  });
+
+  it('coalesces progress to one per phase transition under 250 ms (B37)', async () => {
+    // The frozen clock of the default harness: nothing but the five phase
+    // transitions clears the 250 ms gate, however many slots are seeded.
+    const frozen = harness();
+    await solve(frozen.deps, profileWith(), optionsWith());
+    expect(frozen.events.filter((event) => event.type === 'progress')).toHaveLength(5);
+
+    // A clock that advances past the gate on every read: the seed pass now
+    // reports each slot it folds in, on top of the five transitions.
+    let tick = 1_000;
+    const ticking = harness({
+      now: () => {
+        tick += 260;
+        return tick;
+      },
+    });
+    await solve(ticking.deps, profileWith(), optionsWith());
+    expect(ticking.events.filter((event) => event.type === 'progress')).toHaveLength(
+      5 + PUZZLE.slots.length,
+    );
+  });
+
+  it('stops spending mid-seed when a run-global spend cap is crossed', async () => {
+    // The first token charge crosses `usd`, exactly as T19's tracker can
+    // report a cap other than the one charged.
+    const hooks = fakeHooks((cap) => (cap === 'tokens' ? 'usd' : null));
+    const h = harness({ hooks });
+
+    const result = await solve(h.deps, profileWith(), optionsWith());
+
+    // The calls already in flight are still folded into the base domains,
+    // but nothing further is asked of the escalation policy.
+    expect(hooks.candidatesReturned).toEqual([]);
+    expect(h.domains.sizeOf('1A')).toBeGreaterThan(0);
+    expect(result.status).toBe('partial');
+    // The phase still ended gracefully and the pipeline ran on.
+    expect(h.repair.calls).toBe(1);
+    expect(h.scoreCalls).toHaveLength(1);
+  });
+
+  it('reports partial when the search stopped on its backtrack cap', async () => {
+    const h = harness();
+    // T37 stops *at* maxBacktracks, so `charge` never reports the cap crossed
+    // and no budget:hit is emitted for it; an incomplete search that spent its
+    // whole allowance is still a partial run.
+    h.deps.search = async (grid, domains, hooks, emit, opts) => {
+      const base = await greedySearch()(grid, domains, hooks, emit, opts);
+      return { ...base, complete: false, backtracks: 5 };
+    };
+
+    const result = await solve(h.deps, profileWith({ search: { maxBacktracks: 5 } }), optionsWith());
+
+    // The fill is complete, so only the exhausted allowance makes it partial.
+    expect(h.grid.isComplete()).toBe(true);
+    expect(typesOf(h.events)).not.toContain('budget:hit');
+    expect(result.status).toBe('partial');
+  });
+
+  it('passes chargeBudget through to the repair pass and notices its cap', async () => {
+    const hooks = fakeHooks((cap) => (cap === 'repairCalls' ? 'repairCalls' : null));
+    const h = harness({ hooks });
+    let reported: BudgetCap | null | undefined;
+    h.deps.repair = (_grid, _service, _wordList, _emit, opts) => {
+      const injected = (opts as RepairOptions & {
+        chargeBudget?: (cap: BudgetCap, amount: number) => { exceeded: BudgetCap | null };
+      }).chargeBudget;
+      reported = injected?.('repairCalls', 1).exceeded;
+      return Promise.resolve({ proposals: 1, accepted: 0, callsUsed: 1 });
+    };
+
+    const result = await solve(h.deps, profileWith(), optionsWith());
+
+    // T42 owns ending its own phase on `repairCalls`; this module only has to
+    // hand the charge through and remember that a cap was crossed.
+    expect(reported).toBe('repairCalls');
+    expect(result.status).toBe('partial');
+    expect(result.repair).toEqual({ proposals: 1, accepted: 0, callsUsed: 1 });
+  });
+
+  it('does not let a scorer that throws cost the run its terminal events', async () => {
+    const h = harness();
+    h.deps.score = () => {
+      throw new Error('solution unreadable');
+    };
+
+    const result = await solve(h.deps, profileWith(), optionsWith());
+
+    expect(result.status).toBe('error');
+    expect(result.error).toBe('solution unreadable');
+    expect(result.accuracy).toEqual({ letters: 0, words: 0, perfect: false, emptyCells: 0 });
+    const tail = typesOf(h.events).slice(-5);
+    expect(tail).toEqual(['score:final', 'cost:summary', 'grid:final', 'phase:end', 'run:end']);
+  });
+
+  it('hands the original throw back so the CLI can honour its exit code', async () => {
+    const h = harness();
+    h.deps.search = () =>
+      Promise.reject(new CliError(ExitCode.OFFLINE_MISS, 'cache miss for 1A', 'warm the cache'));
+
+    const result = await solve(h.deps, profileWith(), optionsWith());
+
+    expect(result.status).toBe('error');
+    expect(result.errorCause).toBeInstanceOf(CliError);
+    const cause = result.errorCause;
+    if (!(cause instanceof CliError)) throw new Error('cause lost');
+    expect(cause.code).toBe(ExitCode.OFFLINE_MISS);
+    expect(h.scoreCalls).toHaveLength(1);
+  });
+
+  it('leaves a batch element the service could not deliver with no domain', async () => {
+    const h = harness();
+    const delivered: string[] = [];
+    h.deps.service = {
+      getCandidates: () => {
+        throw new Error('batchSize > 1 must not use single calls');
+      },
+      getCandidatesBatch(reqs): Promise<Map<string, CandidateResult>> {
+        const out = new Map<string, CandidateResult>();
+        for (const req of reqs) {
+          if (req.slotId === '6D') continue;
+          delivered.push(req.slotId);
+          out.set(req.slotId, {
+            candidates: candidatesFor(req.slotId),
+            clueUnderstood: 0.9,
+            cacheHit: true,
+            usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+          });
+        }
+        return Promise.resolve(out);
+      },
+      peek: (slotId): Candidate[] => candidatesFor(slotId),
+    };
+
+    const result = await solve(h.deps, profileWith({ batchSize: 4 }), optionsWith());
+
+    expect(delivered).not.toContain('6D');
+    expect(h.domains.sizeOf('6D')).toBe(0);
+    expect(h.hooks.candidatesReturned).not.toContain('6D');
+    expect(h.grid.assignmentOf('6D')).toBeUndefined();
+    // An undelivered element is not an error: the run finishes and is scored.
+    expect(result.status).not.toBe('error');
+    expect(h.scoreCalls).toHaveLength(1);
+    // A cache hit is priced into usdCounterfactual but billed nothing (B2).
+    const summary = h.events.find((event) => event.type === 'cost:summary');
+    if (summary?.type !== 'cost:summary') throw new Error('cost:summary missing');
+    expect(summary.perTier.tier1.usdBilled).toBe(0);
+    expect(summary.perTier.tier1.usdCounterfactual).toBeGreaterThan(0);
+  });
+
+  it('runs unseeded when --seed was not given', async () => {
+    const h = harness();
+    const result = await solve(h.deps, profileWith(), optionsWith({ seed: null }));
+
+    expect(result.status).toBe('ok');
+    const start = h.events[0];
+    if (start?.type !== 'run:start') throw new Error('run:start missing');
+    expect(start.seed).toBeNull();
+  });
+
+  it('gives the search a PRNG that depends only on --seed (B38)', async () => {
+    async function draws(seed: number | null): Promise<number[]> {
+      const h = harness();
+      const drawn: number[] = [];
+      h.deps.search = (grid, domains, hooks, emit, opts) => {
+        for (let i = 0; i < 4; i += 1) drawn.push(opts.rng());
+        return greedySearch()(grid, domains, hooks, emit, opts);
+      };
+      await solve(h.deps, profileWith(), optionsWith({ seed }));
+      return drawn;
+    }
+
+    const first = await draws(7);
+    expect(first).toHaveLength(4);
+    expect(first.every((n) => n >= 0 && n < 1)).toBe(true);
+    expect(await draws(7)).toEqual(first);
+    expect(await draws(8)).not.toEqual(first);
+    // An unseeded run falls back to Math.random, which is not reproducible.
+    expect(await draws(null)).not.toEqual(await draws(null));
+  });
+
+  it('reports a phase that threw something other than an Error', async () => {
+    // `unknown` rather than a literal, so the throw is legal without turning
+    // off the lint rule that keeps real code throwing Errors.
+    const notAnError: unknown = { code: 4 };
+    const h = harness();
+    h.deps.search = () => {
+      throw notAnError;
+    };
+
+    const result = await solve(h.deps, profileWith(), optionsWith());
+
+    expect(result.status).toBe('error');
+    expect(result.error).toBe('{"code":4}');
+    expect(result.errorCause).toBe(notAnError);
+    expect(h.scoreCalls).toHaveLength(1);
+  });
+
+  it('reports a phase that threw a bare string', async () => {
+    const message: unknown = 'the transport gave up';
+    const h = harness();
+    h.deps.search = () => {
+      throw message;
+    };
+
+    const result = await solve(h.deps, profileWith(), optionsWith());
+
+    expect(result.error).toBe('the transport gave up');
+    const end = h.events.at(-1);
+    if (end?.type !== 'run:end') throw new Error('run:end missing');
+    expect(end.error).toBe('the transport gave up');
   });
 });
