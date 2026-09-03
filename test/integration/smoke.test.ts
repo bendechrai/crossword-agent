@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -94,6 +94,8 @@ const XW_BIN = join(ROOT, 'bin/xw.js');
 const CACHE_DIR = join(ROOT, 'test/fixtures/cache');
 const FETCH_FIXTURE_ID = 'synthetic-5x5';
 const FETCH_FIXTURE_PATH = join(ROOT, 'test/fixtures/puzzles', `${FETCH_FIXTURE_ID}.ipuz`);
+/** `src/sources/file.ts` labels everything it fetches with this source. */
+const FETCH_SOURCE = 'file';
 /** The already-normalised "library" fixture T50's committed cache was populated against. */
 const LIBRARY_FIXTURE_PATH = join(ROOT, 'test/fixtures/puzzles/synthetic-5x5.json');
 const LIBRARY_SOURCE = 'synthetic';
@@ -167,6 +169,13 @@ describe('smoke: xw fetch file (end-to-end file source)', () => {
   it(
     'fetches a committed .ipuz fixture through the file source and exits 0',
     async () => {
+      // Its own temp dir, never the dir the solve check below seeds: the file
+      // source normalises this fixture to id `synthetic-5x5` under source
+      // `file` (`src/puzzle/loader.ts` derives the id from the basename),
+      // which is the same id the solve check seeds under source `synthetic`.
+      // Two files at one id in one puzzles dir make `findNormalisedPath`
+      // (src/puzzle/library.ts) pick whichever `readdirSync` happens to
+      // return first - unsorted, and not stable across filesystems.
       const puzzlesDir = await mkdtemp(join(tmpdir(), 'xw-smoke-fetch-'));
       tmpDirs.push(puzzlesDir);
 
@@ -183,6 +192,10 @@ describe('smoke: xw fetch file (end-to-end file source)', () => {
         fetchResult.code,
         `xw fetch file failed:\nstdout:\n${fetchResult.stdout}\nstderr:\n${fetchResult.stderr}`,
       ).toBe(0);
+
+      // Exit 0 alone would also be true of a fetch that wrote nothing.
+      const normalised = join(puzzlesDir, FETCH_SOURCE, `${FETCH_FIXTURE_ID}.json`);
+      await expect(access(normalised)).resolves.toBeUndefined();
     },
     30_000,
   );

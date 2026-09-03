@@ -4,17 +4,38 @@
 # real container) - run it by hand, against the long-running `crossword-solver`
 # container (`docker compose up -d` first), as a pre-release check.
 #
+# Override the container name with $CROSSWORD_SMOKE_CONTAINER.
+#
 # Two independent steps against the real `xw` binary inside the container
 # (the same entry point `npm link` in the Docker image points `xw` at),
 # deliberately not chained - see "Cache alignment" below for why:
-#   1. `xw fetch file test/fixtures/puzzles/synthetic-5x5.ipuz` - the
-#      container's own `puzzles/` (bind-mounted from the repo), so this
-#      doubles as proof the `file` source and the loader dispatch work end to
-#      end.
+#   1. `xw fetch file --path test/fixtures/puzzles/synthetic-5x5.ipuz
+#      --out <fetch dir>` - proof that the `file` source and the loader
+#      dispatch work end to end, all the way to a normalised puzzle file on
+#      disk.
 #   2. `xw --cache-dir test/fixtures/cache solve synthetic-5x5 --offline
-#      --profile no-repair` against the committed cache (T50), against a
-#      puzzle seeded directly into the library (see below), not against
-#      step 1's fetch output.
+#      --profile no-repair` against the committed cache (T50), over a puzzle
+#      seeded directly into a second, separate library dir (see below), not
+#      over step 1's fetch output.
+#
+# Separate directories, per run (fixed in review): both steps use their own
+# subdirectory of a per-invocation scratch dir under the container's /tmp,
+# and neither writes under the repository's own `puzzles/` at all. This is
+# not just tidiness. Step 1 normalises to id `synthetic-5x5` under source
+# `file` (`src/puzzle/loader.ts` derives the id from the fixture's basename)
+# and step 2 seeds the same id under source `synthetic`, so pointing both at
+# one puzzles dir puts two different files at the same id -
+# `findNormalisedPath` (src/puzzle/library.ts) returns the FIRST
+# `<source>/<id>.json` it finds in `readdirSync` order, which is not sorted,
+# not stable across filesystems, and in practice returned the `file` copy -
+# and step 3 then solves the wrong, cache-misaligned puzzle and fails.
+# Keeping the two dirs apart makes the outcome independent of directory
+# order. The scratch dir is named with this (host) shell's pid, expanded
+# once here and passed to every `docker exec`, so two concurrent runs
+# against the same container cannot collide either. Cleanup is therefore a
+# single `rm -rf` of that one directory, with no backup-and-restore of any
+# repository file (the acceptance criterion "leaves no file under puzzles/"
+# holds trivially: nothing is ever written there).
 #
 # Fixture choice (step 1): not one of the four `puzzles/fixtures/*.xd`
 # puzzles the task text names. `src/puzzle/adapters/xd.ts` always sets
@@ -41,7 +62,7 @@
 # or deleted cache directory (found in review). Step 2 instead copies the
 # already-normalised `test/fixtures/puzzles/synthetic-5x5.json` fixture -
 # the exact content the cache was populated against - straight into the
-# library form (`puzzles/<source>/<id>.json`), bypassing `xw fetch`
+# library form (`<library dir>/<source>/<id>.json`), bypassing `xw fetch`
 # entirely, so every cache key lines up.
 #
 # --offline, not --offline-lenient (step 2): now that the keys line up,
@@ -68,127 +89,116 @@
 # themselves, so this passes with no real key configured (an absent or
 # key-less .env): the transport needs *a* value to construct, and
 # --offline guarantees it is never actually used over the network.
-#
-# Cleanup: everything this script adds under puzzles/ (the fetch step's
-# file-source copies, the library-seeded puzzle file for the solve step, and
-# puzzles/index.json - restored to its prior content, or removed if it did
-# not previously exist) is undone again before this script exits, per this
-# task's acceptance criteria. The backups live at fixed paths rather than
-# ones keyed by this script's own PID, because the two steps and the cleanup
-# step below are separate `docker exec` invocations (so separate
-# container-side shell PIDs) that all need to agree on the names.
 set -eu
 
 CONTAINER=${CROSSWORD_SMOKE_CONTAINER:-crossword-solver}
 FETCH_FIXTURE_ID=synthetic-5x5
 FETCH_FIXTURE_PATH=test/fixtures/puzzles/synthetic-5x5.ipuz
+FETCH_SOURCE=file
 LIBRARY_FIXTURE_PATH=test/fixtures/puzzles/synthetic-5x5.json
 LIBRARY_SOURCE=synthetic
 LIBRARY_ID=synthetic-5x5
+CACHE_DIR=test/fixtures/cache
+PROFILE=no-repair
+SEED=42
+BUDGET_USD=0.4
+# Anything below this is not a real solve of this fixture against T50's cache.
+MIN_ACCURACY=0.99
 PLACEHOLDER_KEY=offline-smoke-placeholder-key
-INDEX_BACKUP=/tmp/xw-smoke-index-backup.json
-HAD_INDEX_MARKER=/tmp/xw-smoke-had-index
-HAD_LIBRARY_MARKER=/tmp/xw-smoke-had-library
+
+WORK_DIR=/tmp/xw-smoke-$$
+FETCH_DIR=$WORK_DIR/fetch
+LIBRARY_DIR=$WORK_DIR/library
+RUN_OUT=$WORK_DIR/run.json
+
+fail() {
+  echo "smoke-container: $1" >&2
+  exit 1
+}
 
 cleanup() {
-  docker exec "$CONTAINER" sh -c '
-    fetch_fixture_id="'"$FETCH_FIXTURE_ID"'"
-    library_source="'"$LIBRARY_SOURCE"'"
-    library_id="'"$LIBRARY_ID"'"
-    index_path="puzzles/index.json"
-    index_backup="'"$INDEX_BACKUP"'"
-    had_index_marker="'"$HAD_INDEX_MARKER"'"
-    had_library_marker="'"$HAD_LIBRARY_MARKER"'"
-    had_index=0
-    [ -f "$had_index_marker" ] && had_index=$(cat "$had_index_marker")
-
-    rm -f "puzzles/file/${fetch_fixture_id}.ipuz" "puzzles/file/${fetch_fixture_id}.json" \
-      /tmp/smoke-run.json "$had_index_marker"
-
-    # The library file this script seeds did not exist before (a fresh id);
-    # only remove it, and only the directory this script itself created.
-    if [ -f "$had_library_marker" ]; then
-      rm -f "puzzles/${library_source}/${library_id}.json"
-      rmdir "puzzles/${library_source}" 2>/dev/null || true
-      rm -f "$had_library_marker"
-    fi
-
-    if [ "$had_index" = "1" ]; then
-      mv "$index_backup" "$index_path"
-    else
-      rm -f "$index_path" "$index_backup"
-    fi
-  ' 2>/dev/null || true
+  docker exec "$CONTAINER" rm -rf "$WORK_DIR" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-echo "smoke-container: xw fetch file ${FETCH_FIXTURE_PATH}"
-docker exec -e NEBIUS_API_KEY="$PLACEHOLDER_KEY" "$CONTAINER" sh -c '
-  set -eu
-  fixture_path="'"$FETCH_FIXTURE_PATH"'"
-  index_path="puzzles/index.json"
-  index_backup="'"$INDEX_BACKUP"'"
-  had_index_marker="'"$HAD_INDEX_MARKER"'"
+echo "smoke-container: container=$CONTAINER scratch=$WORK_DIR"
 
-  if [ -f "$index_path" ]; then
-    cp "$index_path" "$index_backup"
-    echo 1 >"$had_index_marker"
-  else
-    echo 0 >"$had_index_marker"
-  fi
+echo "smoke-container: xw fetch file --path $FETCH_FIXTURE_PATH --out $FETCH_DIR"
+docker exec -e NEBIUS_API_KEY="$PLACEHOLDER_KEY" "$CONTAINER" \
+  xw fetch file --path "$FETCH_FIXTURE_PATH" --out "$FETCH_DIR"
 
-  xw fetch file --path "$fixture_path"
-'
+docker exec "$CONTAINER" test -f "$FETCH_DIR/$FETCH_SOURCE/$FETCH_FIXTURE_ID.json" \
+  || fail "xw fetch file exited 0 but wrote no $FETCH_DIR/$FETCH_SOURCE/$FETCH_FIXTURE_ID.json"
 
-echo "smoke-container: seeding library puzzle for the offline solve"
+echo "smoke-container: seeding $LIBRARY_DIR/$LIBRARY_SOURCE/$LIBRARY_ID.json"
 docker exec "$CONTAINER" sh -c '
   set -eu
-  library_fixture_path="'"$LIBRARY_FIXTURE_PATH"'"
-  library_source="'"$LIBRARY_SOURCE"'"
-  library_id="'"$LIBRARY_ID"'"
-  had_library_marker="'"$HAD_LIBRARY_MARKER"'"
-  library_path="puzzles/${library_source}/${library_id}.json"
+  library_dir=$1
+  fixture=$2
+  source_name=$3
+  id=$4
+  mkdir -p "$library_dir/$source_name"
+  cp "$fixture" "$library_dir/$source_name/$id.json"
+' sh "$LIBRARY_DIR" "$LIBRARY_FIXTURE_PATH" "$LIBRARY_SOURCE" "$LIBRARY_ID"
 
-  if [ -f "$library_path" ]; then
-    echo "smoke-container: ${library_path} already exists - refusing to overwrite" >&2
-    exit 1
-  fi
-  echo 1 >"$had_library_marker"
-  mkdir -p "puzzles/${library_source}"
-  cp "$library_fixture_path" "$library_path"
-'
+# Guards the exact defect fixed above: the solve step below must have one and
+# only one candidate file for this id, or `findNormalisedPath`'s unsorted
+# directory scan decides which puzzle gets solved.
+copies=$(docker exec "$CONTAINER" \
+  sh -c 'find "$1" -type f -name "$2.json" | wc -l' sh "$LIBRARY_DIR" "$LIBRARY_ID" \
+  | tr -cd '0-9')
+[ "$copies" = "1" ] \
+  || fail "expected exactly one $LIBRARY_ID.json under $LIBRARY_DIR, found $copies"
 
-echo "smoke-container: xw solve ${LIBRARY_ID} --offline --profile no-repair"
+echo "smoke-container: xw --cache-dir $CACHE_DIR solve $LIBRARY_ID --offline --profile $PROFILE"
 set +e
-output=$(docker exec -e NEBIUS_API_KEY="$PLACEHOLDER_KEY" "$CONTAINER" \
-  xw --cache-dir test/fixtures/cache solve "$LIBRARY_ID" --offline --profile no-repair \
-  --seed 42 --budget-usd 0.4 --no-inference-log --out /tmp/smoke-run.json)
+output=$(docker exec \
+  -e NEBIUS_API_KEY="$PLACEHOLDER_KEY" \
+  -e CROSSWORD_PUZZLES_DIR="$LIBRARY_DIR" \
+  "$CONTAINER" \
+  xw --cache-dir "$CACHE_DIR" solve "$LIBRARY_ID" \
+  --offline --profile "$PROFILE" --seed "$SEED" --budget-usd "$BUDGET_USD" \
+  --no-inference-log --out "$RUN_OUT" 2>&1)
 status=$?
 set -e
 
 echo "$output"
 
-if [ "$status" -ne 0 ]; then
-  echo "smoke-container: xw solve exited $status" >&2
-  exit "$status"
-fi
+[ "$status" -eq 0 ] || fail "xw solve exited $status"
 
 # Tightened per review: with strict --offline a miss is already a hard exit
-# above, but this stays as a second, independent check that the printed
-# accuracy is a real one, not an all-zero empty-grid line (which is what an
+# above, but the printed accuracy is checked for a real number rather than
+# for the mere presence of the line - an all-zero empty-grid score is what an
 # empty or deleted cache directory produced under the old --offline-lenient
-# flow, and which the old `*letters=*words=*` pattern accepted just as
-# happily as a real run).
-case "$output" in
-  *"letters=0.000 words=0.000"*)
-    echo "smoke-container: got an empty-grid score (letters=0.000 words=0.000) - solve did not actually use the cache" >&2
-    exit 1
-    ;;
-  *"letters="*"words="*) : ;;
-  *)
-    echo "smoke-container: expected output to contain letters= and words= accuracy lines" >&2
-    exit 1
-    ;;
-esac
+# flow, and the old `*letters=*words=*` pattern accepted it just as happily
+# as a real run.
+score_line=$(printf '%s\n' "$output" \
+  | grep -E 'Score: letters=[0-9.]+ words=[0-9.]+' | head -n 1 || true)
+[ -n "$score_line" ] \
+  || fail "expected a 'Score: letters=<n> words=<n>' line in the solve output"
 
+letters=$(printf '%s\n' "$score_line" | sed -n 's/.*letters=\([0-9][0-9.]*\).*/\1/p')
+words=$(printf '%s\n' "$score_line" | sed -n 's/.*words=\([0-9][0-9.]*\).*/\1/p')
+awk -v l="$letters" -v w="$words" -v min="$MIN_ACCURACY" \
+  'BEGIN { exit !(l + 0 >= min && w + 0 >= min) }' \
+  || fail "accuracy below $MIN_ACCURACY, so the cache was not really used: $score_line"
+
+# Belt and braces: the same assertion off the written run record rather than
+# off stdout text, and a check that the run actually completed ('ok') instead
+# of exiting 0 with a 'partial' grid.
+docker exec "$CONTAINER" node -e '
+  const fs = require("fs");
+  const record = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const min = Number(process.argv[2]);
+  if (record.status !== "ok") {
+    console.error("run record status is " + record.status + ", expected ok");
+    process.exit(1);
+  }
+  if (!(record.accuracy.letters >= min) || record.accuracy.emptyCells !== 0) {
+    console.error("run record accuracy " + JSON.stringify(record.accuracy));
+    process.exit(1);
+  }
+' "$RUN_OUT" "$MIN_ACCURACY" || fail "the run record at $RUN_OUT is not a completed, accurate run"
+
+echo "smoke-container: $score_line"
 echo "smoke-container: OK"
