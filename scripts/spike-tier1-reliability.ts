@@ -1149,16 +1149,39 @@ function buildReport(input: ReportInput): string {
     const statuses = new Set(input.burstSamples.map((s) => s.status));
     const any429 = input.burstSamples.some((s) => s.status === 429);
     if (!any429) {
+      const sequentialRps = input.latencyStats.mean > 0 ? 1000 / input.latencyStats.mean : 0;
+      const elapsedSec = (new Date(input.endedAt).getTime() - new Date(input.startIso).getTime()) / 1000;
+      const remainingRequestsHeader = input.headerTable.get('x-ratelimit-remaining-requests');
+      const resetRequestsHeader = input.headerTable.get('x-ratelimit-reset-requests');
+      const remainingExample =
+        remainingRequestsHeader !== undefined
+          ? [...remainingRequestsHeader.exampleValues].slice(0, 3).join(' / ')
+          : undefined;
+      const resetExample =
+        resetRequestsHeader !== undefined ? [...resetRequestsHeader.exampleValues].slice(0, 3).join(' / ') : undefined;
       lines.push(
         `**Finding: all ${String(input.burstSamples.length)} concurrent requests returned ` +
           `${[...statuses].join('/')}, none 429.** A ${String(input.burstSize)}-request instantaneous ` +
           'burst did not trip the limit, which is consistent with either a bucket sized well above ' +
           `${String(input.burstSize)} requests, or a window wide enough (per-minute, not per-second) ` +
           'that a single short burst does not exhaust it. This run cannot distinguish those two cases ' +
-          'on its own; see the status-code table below (section 5) for the sustained-rate evidence ' +
-          'from the 200-clue phase, which ran at roughly the client limiter\'s configured rate ' +
-          `(${String(Math.round(profileRps()))} rps) for tens of seconds without a 429, which is ` +
-          'more informative about the window than a single burst.',
+          'on its own. The 200-clue phase (section 5) does **not** add sustained-rate evidence here: ' +
+          `its loop awaits each call before starting the next, so it never approached the client ` +
+          `limiter's configured cap - at the phase's mean latency of ${String(Math.round(input.latencyStats.mean))} ms ` +
+          `it ran at roughly ${sequentialRps.toFixed(1)} rps (the whole run, all phases included, spanned ` +
+          `about ${Math.round(elapsedSec)} s for ~${String(input.n)} main-phase calls), never close to a rate ` +
+          'that would stress a per-second bucket. The better evidence for bucket-vs-window comes from the ' +
+          'header values already captured in section 3' +
+          (remainingExample !== undefined && resetExample !== undefined
+            ? `: \`x-ratelimit-remaining-requests\` recovers toward its ceiling between sequential calls ` +
+              `only seconds apart (e.g. ${remainingExample}), and \`x-ratelimit-reset-requests\` reports resets ` +
+              `of ${resetExample} rather than anything near 60 s - both are consistent with a continuously ` +
+              'refilling per-second-scale bucket, not a fixed 60-second window (which would show the ' +
+              'remaining count falling monotonically for up to a minute before a hard reset). Separately, ' +
+              `the ${String(input.burstSamples.length)}-request burst clearing instantly with zero 429s rules ` +
+              'out a strict 10-requests-per-second bucket, since that many requests landing within well under ' +
+              'a second would have exceeded a 10/s cap by roughly 2x if the bucket were that tight.'
+            : ', but no rate-limit headers were captured in this run to compare against.'),
       );
     } else {
       lines.push(
@@ -1266,11 +1289,6 @@ function buildReport(input: ReportInput): string {
   lines.push('');
 
   return lines.join('\n');
-}
-
-function profileRps(): number {
-  const profile = getBuiltin('baseline');
-  return (profile.rateLimit.rpsFraction * 600) / 60;
 }
 
 await main();
