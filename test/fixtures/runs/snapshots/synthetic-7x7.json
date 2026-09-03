@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-7x7--baseline--20260903T192031Z--1df1aeb1",
-  "timestamp": "2026-09-03T19:20:31.360Z",
+  "runId": "synthetic-7x7--baseline--20260903T204713Z--1df1aeb1",
+  "timestamp": "2026-09-03T20:47:13.162Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-7x7",
@@ -211,9 +211,9 @@
       "clue": "As well; also",
       "length": 3,
       "truth": "TOO",
-      "filled": "TOO",
-      "correct": true,
-      "producedBy": "wordlist",
+      "filled": null,
+      "correct": false,
+      "producedBy": null,
       "batchIndex": null,
       "truthInCandidates": false,
       "truthRank": null,
@@ -722,9 +722,9 @@
     "ac3Reductions": 9
   },
   "repair": {
-    "proposals": 40,
-    "accepted": 1
+    "proposals": 995,
+    "accepted": 0
   },
-  "wallMs": 11,
+  "wallMs": 9,
   "budgetHits": []
 }

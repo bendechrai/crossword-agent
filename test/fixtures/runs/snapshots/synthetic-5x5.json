@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-5x5--baseline--20260903T191409Z--1df1aeb1",
-  "timestamp": "2026-09-03T19:14:09.877Z",
+  "runId": "synthetic-5x5--baseline--20260903T204713Z--1df1aeb1",
+  "timestamp": "2026-09-03T20:47:13.141Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-5x5",
@@ -95,7 +95,7 @@
       "usd": 0,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 4,
+      "candidatesSeen": 3,
       "pickedRank": 2
     },
     {
@@ -398,9 +398,9 @@
     "ac3Reductions": 10
   },
   "repair": {
-    "proposals": 101,
+    "proposals": 468,
     "accepted": 0
   },
-  "wallMs": 9,
+  "wallMs": 8,
   "budgetHits": []
 }

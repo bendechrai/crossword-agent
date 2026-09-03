@@ -10,11 +10,11 @@
   },
   "nyt-1950-10-12": {
     "profile": "baseline",
-    "measuredLetters": 0.42328042328042326,
+    "measuredLetters": 0.42857142857142855,
     "measuredWords": 0.24324324324324326,
-    "minLetters": 0.37328042328042327,
+    "minLetters": 0.37857142857142856,
     "perfect": false,
-    "status": "ok",
+    "status": "partial",
     "offlineMode": "lenient"
   },
   "nyt-1955-06-06": {
@@ -37,9 +37,9 @@
   },
   "nyt-1962-03-21": {
     "profile": "baseline",
-    "measuredLetters": 0.34554973821989526,
+    "measuredLetters": 0.3298429319371728,
     "measuredWords": 0.17105263157894737,
-    "minLetters": 0.2955497382198953,
+    "minLetters": 0.2798429319371728,
     "perfect": false,
     "status": "partial",
     "offlineMode": "lenient"

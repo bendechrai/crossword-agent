@@ -1,7 +1,7 @@
 {
-  "runId": "nyt-1950-10-12--baseline--20260903T184239Z--1df1aeb1",
-  "timestamp": "2026-09-03T18:42:39.488Z",
-  "status": "ok",
+  "runId": "nyt-1950-10-12--baseline--20260903T204712Z--1df1aeb1",
+  "timestamp": "2026-09-03T20:47:12.921Z",
+  "status": "partial",
   "puzzle": {
     "id": "nyt-1950-10-12",
     "source": "file",
@@ -65,10 +65,10 @@
     "tier2": "deepseek-ai/DeepSeek-V4-Pro"
   },
   "accuracy": {
-    "letters": 0.42328042328042326,
+    "letters": 0.42857142857142855,
     "words": 0.24324324324324326,
     "perfect": false,
-    "emptyCells": 0
+    "emptyCells": 4
   },
   "perSlot": [
     {
@@ -103,7 +103,7 @@
       "clue": "Senior of a body of men.",
       "length": 4,
       "truth": "DEAN",
-      "filled": "LACE",
+      "filled": "LYES",
       "correct": false,
       "producedBy": "wordlist",
       "batchIndex": null,
@@ -130,7 +130,7 @@
       "clue": "Frog genus.",
       "length": 4,
       "truth": "RANA",
-      "filled": "OATS",
+      "filled": "OENO",
       "correct": false,
       "producedBy": "wordlist",
       "batchIndex": null,
@@ -184,7 +184,7 @@
       "clue": "State of being happy.",
       "length": 8,
       "truth": "FELICITY",
-      "filled": "TREXARMS",
+      "filled": "THECOUNT",
       "correct": false,
       "producedBy": "wordlist",
       "batchIndex": null,
@@ -211,7 +211,7 @@
       "clue": "E. C. Bentley's detective.",
       "length": 5,
       "truth": "TRENT",
-      "filled": "OASIS",
+      "filled": "OCEAN",
       "correct": false,
       "producedBy": "wordlist",
       "batchIndex": null,
@@ -427,7 +427,7 @@
       "clue": "Seed coverings.",
       "length": 5,
       "truth": "ARILS",
-      "filled": "ARBOR",
+      "filled": "ARIAN",
       "correct": false,
       "producedBy": "wordlist",
       "batchIndex": null,
@@ -454,7 +454,7 @@
       "clue": "Twin crystal.",
       "length": 5,
       "truth": "MACLE",
-      "filled": "MACYS",
+      "filled": "MATKA",
       "correct": false,
       "producedBy": "wordlist",
       "batchIndex": null,
@@ -1102,9 +1102,9 @@
       "clue": "Republic of Israel.",
       "length": 9,
       "truth": "PALESTINE",
-      "filled": "EAVESDROP",
+      "filled": null,
       "correct": false,
-      "producedBy": "wordlist",
+      "producedBy": null,
       "batchIndex": null,
       "truthInCandidates": false,
       "truthRank": null,
@@ -1129,9 +1129,9 @@
       "clue": "Hawaiian dance.",
       "length": 4,
       "truth": "HULA",
-      "filled": "TUBA",
+      "filled": null,
       "correct": false,
-      "producedBy": "wordlist",
+      "producedBy": null,
       "batchIndex": null,
       "truthInCandidates": true,
       "truthRank": 0,
@@ -1156,9 +1156,9 @@
       "clue": "___ Dinesen, author of \"Seven Gothic Tales.\"",
       "length": 4,
       "truth": "ISAK",
-      "filled": "ASOK",
+      "filled": null,
       "correct": false,
-      "producedBy": "wordlist",
+      "producedBy": null,
       "batchIndex": null,
       "truthInCandidates": true,
       "truthRank": 0,
@@ -1372,9 +1372,9 @@
       "clue": "Water jar.",
       "length": 4,
       "truth": "OLLA",
-      "filled": null,
+      "filled": "OENO",
       "correct": false,
-      "producedBy": null,
+      "producedBy": "wordlist",
       "batchIndex": null,
       "truthInCandidates": false,
       "truthRank": null,
@@ -2099,9 +2099,9 @@
     "ac3Reductions": 18
   },
   "repair": {
-    "proposals": 183,
-    "accepted": 9
+    "proposals": 455,
+    "accepted": 7
   },
-  "wallMs": 48,
+  "wallMs": 32,
   "budgetHits": []
 }
