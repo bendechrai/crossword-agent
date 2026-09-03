@@ -76,11 +76,54 @@ describe('getLimiter: the rps token bucket', () => {
     // Window 1 [0, 1000ms): the full burst of 10 grants immediately.
     expect(order.length).toBe(10);
 
-    await vi.advanceTimersByTimeAsync(1000);
+    // ...and nothing more for the rest of that window. Asserting only at
+    // t=0 and t=1000 would pass just as happily on a limiter that leaked 9
+    // extra grants at t=100..900 and then stalled, which is exactly what a
+    // full-seeded refilling bucket does.
+    await vi.advanceTimersByTimeAsync(999);
+    expect(order.length).toBe(10);
 
-    // Window 2 [1000, 2000ms): the remaining 10 have all been released by
-    // the 1-second mark, refilling at 10 rps.
+    await vi.advanceTimersByTimeAsync(1);
+
+    // Window 2 [1000, 2000ms): the first 10 grants have aged out of the
+    // trailing 1-second window, so the remaining 10 are released at once.
     expect(order.length).toBe(20);
+  });
+
+  it('grants only rps in the first second after an idle period, not a doubled burst', async () => {
+    // The idle case is where a bucket seeded full at `rps` and refilling at
+    // `rps` per second gives away roughly 2 * rps in one second: it is
+    // brim-full from the seed AND has been accruing refill for the whole
+    // idle stretch. The sliding window has no such stored credit - only the
+    // last 1000ms of grants count, and an idle stretch simply empties it.
+    mockLimits({ requestsPerMinute: 600, tokensPerMinute: 10_000_000, burstRatio: 1 });
+    const limiter = getLimiter('idle-model', { rpsFraction: 1, maxConcurrency: 100 });
+
+    const order: number[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      void limiter.acquire(1).then(() => order.push(i));
+    }
+    await flushMicrotasks();
+    expect(order.length).toBe(10);
+
+    // Idle: no acquires at all for three windows.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(order.length).toBe(10);
+
+    for (let i = 10; i < 30; i += 1) {
+      void limiter.acquire(1).then(() => order.push(i));
+    }
+    await flushMicrotasks();
+
+    // t+0: exactly 10 more, not 20 and not 19.
+    expect(order.length).toBe(20);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(order.length).toBe(20);
+
+    // t+1000: the second 10 age out and the last 10 are released.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(order.length).toBe(30);
   });
 
   it('releases queued callers strictly in arrival order (FIFO)', async () => {

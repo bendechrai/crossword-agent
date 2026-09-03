@@ -16,6 +16,9 @@ const RECOVERY_INTERVAL_MS = 10_000;
 const RECOVERY_STEP_RPS = 0.5;
 const MIN_RPS = 1;
 
+/** The "per second" of requests-per-second: the sliding window's nominal span. */
+const RPS_WINDOW_MS = 1000;
+
 const RESET_DURATION_RE = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/i;
 const PLAIN_NUMBER_RE = /^\d+(?:\.\d+)?$/;
 
@@ -106,8 +109,11 @@ export function parseRateLimitHeaders(headers: Record<string, string>): RateLimi
 
 /**
  * Continuous refill token bucket: `capacity` tokens available at full,
- * refilling at `ratePerMs` tokens/ms up to `capacity`. Both are mutable so
- * AIMD can resize the rps bucket in place without losing its fill level.
+ * refilling at `ratePerMs` tokens/ms up to `capacity`. Used for the
+ * tokens-per-minute allowance, where a full bucket at start-up is the
+ * intended behaviour - a fresh minute really does have the whole TPM budget
+ * available. Requests-per-second is gated by `SlidingWindowGate` instead;
+ * see the note there for why a seeded bucket is the wrong shape for it.
  */
 class TokenBucket {
   private tokens: number;
@@ -142,15 +148,71 @@ class TokenBucket {
     this.tokens -= amount;
   }
 
-  resize(capacity: number, ratePerMs: number, nowMs: number): void {
-    this.refill(nowMs);
-    this.capacity = capacity;
-    this.ratePerMs = ratePerMs;
-    this.tokens = Math.min(this.tokens, capacity);
-  }
-
   getCapacity(): number {
     return this.capacity;
+  }
+}
+
+/**
+ * Requests-per-second gate: a grant is allowed only while fewer than `limit`
+ * grants have been recorded in the trailing `windowMs`, so the count in any
+ * window of that length can never exceed `limit`.
+ *
+ * A refilling token bucket cannot express this. Seeded full at capacity
+ * `rps` it also refills at `rps` per second, so after an idle second it
+ * hands out its whole seeded burst AND everything the refill added during
+ * the wait - about 2 * rps grants inside the first second (measured: rps 10,
+ * 20 queued acquires, 19 released in [0, 1000) ms). Seeding it empty instead
+ * would fix the count but destroy the burst the seed pass depends on.
+ *
+ * The window keeps both: `limit` grants land immediately, and the next one
+ * waits until the oldest of them falls out of the window.
+ *
+ * A fractional rps (AIMD halving, or a low-RPM catalogue entry) is expressed
+ * by stretching the window rather than rounding the limit away: `limit` is
+ * `floor(rps)` with a floor of 1, and `windowMs` is `limit / rps` seconds,
+ * so 2.5 rps is 2 grants per 800 ms and 0.3 rps is 1 grant per 3333 ms -
+ * both exactly the requested long-run rate.
+ */
+class SlidingWindowGate {
+  /** Timestamps of the grants still inside the window, oldest first. */
+  private readonly grants: number[] = [];
+  private limit = 1;
+  private windowMs = RPS_WINDOW_MS;
+
+  constructor(rps: number) {
+    this.setRate(rps);
+  }
+
+  /** Re-rates the gate in place (AIMD); recorded grants are kept. */
+  setRate(rps: number): void {
+    this.limit = rps > 0 ? Math.max(1, Math.floor(rps)) : 1;
+    this.windowMs = rps > 0 ? (this.limit / rps) * RPS_WINDOW_MS : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * Drops grants that have aged out. A grant exactly `windowMs` old is
+   * already outside the window: the window is the half-open interval
+   * `(now - windowMs, now]`, which is what makes the 10 grants at t=0
+   * stop counting at t=1000 rather than t=1001.
+   */
+  private prune(nowMs: number): void {
+    const cutoff = nowMs - this.windowMs;
+    let expired = 0;
+    while (expired < this.grants.length && this.grants[expired]! <= cutoff) expired += 1;
+    if (expired > 0) this.grants.splice(0, expired);
+  }
+
+  /** ms until a grant is allowed; 0 when one is allowed right now. */
+  waitMs(nowMs: number): number {
+    this.prune(nowMs);
+    if (this.grants.length < this.limit) return 0;
+    // length >= limit >= 1, so the oldest grant exists.
+    return this.grants[0]! + this.windowMs - nowMs;
+  }
+
+  record(nowMs: number): void {
+    this.grants.push(nowMs);
   }
 }
 
@@ -179,7 +241,7 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
 class RateLimiterImpl implements RateLimiter {
   private readonly ceilingRps: number;
   private rps: number;
-  private readonly rpsBucket: TokenBucket;
+  private readonly rpsGate: SlidingWindowGate;
   private readonly tpmBucket: TokenBucket;
   private readonly queue: QueueEntry[] = [];
   private inFlight = 0;
@@ -196,9 +258,8 @@ class RateLimiterImpl implements RateLimiter {
   ) {
     this.ceilingRps = rps;
     this.rps = rps;
-    const now = Date.now();
-    this.rpsBucket = new TokenBucket(rps, rps / 1000, now);
-    this.tpmBucket = new TokenBucket(tpm, tpm / 60_000, now);
+    this.rpsGate = new SlidingWindowGate(rps);
+    this.tpmBucket = new TokenBucket(tpm, tpm / 60_000, Date.now());
   }
 
   acquire(estimatedTokens: number): Promise<void> {
@@ -263,12 +324,12 @@ class RateLimiterImpl implements RateLimiter {
       // demand to the bucket's capacity so such a request is instead
       // granted as soon as the bucket is full.
       const tpmDemand = Math.min(head.estimatedTokens, this.tpmBucket.getCapacity());
-      const wait = Math.max(this.rpsBucket.waitMs(1, now), this.tpmBucket.waitMs(tpmDemand, now));
+      const wait = Math.max(this.rpsGate.waitMs(now), this.tpmBucket.waitMs(tpmDemand, now));
       if (wait > 0) {
         this.scheduleWake(wait);
         return;
       }
-      this.rpsBucket.consume(1, now);
+      this.rpsGate.record(now);
       this.tpmBucket.consume(tpmDemand, now);
       this.inFlight += 1;
       this.queue.shift();
@@ -287,7 +348,7 @@ class RateLimiterImpl implements RateLimiter {
    * Deliberately NOT unref'd, unlike the recovery timer: this timer is the
    * only thing that will ever settle the queued `acquire()` promises, and an
    * awaited promise is not itself a reason for Node to keep running. Unref
-   * it and a run whose workers are all waiting on the buckets - with no
+   * it and a run whose workers are all waiting on the rate gate - with no
    * socket open at that instant - exits the moment the loop drains, leaving
    * every queued caller unresolved and the command silently truncated.
    *
@@ -306,7 +367,6 @@ class RateLimiterImpl implements RateLimiter {
   }
 
   private applyDecrease(): void {
-    const now = Date.now();
     // The floor is normally MIN_RPS, but a model whose catalogue ceiling is
     // itself below MIN_RPS (e.g. a low RPM model) must never be floored
     // above its own ceiling - that would push rps past the ceiling on a
@@ -316,7 +376,7 @@ class RateLimiterImpl implements RateLimiter {
     const next = Math.max(floor, this.rps / 2);
     if (next !== this.rps) {
       this.rps = next;
-      this.rpsBucket.resize(this.rps, this.rps / 1000, now);
+      this.rpsGate.setRate(this.rps);
       this.emit?.({ type: 'rate:adjusted', model: this.model, rps: this.rps, reason: '429' });
     }
     this.scheduleRecovery();
@@ -336,9 +396,8 @@ class RateLimiterImpl implements RateLimiter {
     // while anything else keeps the loop alive.
     const timer = setTimeout(() => {
       this.recoveryTimer = undefined;
-      const now = Date.now();
       this.rps = Math.min(this.ceilingRps, this.rps + RECOVERY_STEP_RPS);
-      this.rpsBucket.resize(this.rps, this.rps / 1000, now);
+      this.rpsGate.setRate(this.rps);
       this.emit?.({
         type: 'rate:adjusted',
         model: this.model,
@@ -368,7 +427,7 @@ const registry = new Map<string, RateLimiterImpl>();
 /**
  * The per-model `RateLimiterRegistry`: repeated calls for the same model
  * return the same instance, so all callers - including parallel puzzles in
- * `bench` - share one bucket set per model.
+ * `bench` - share one rate gate and TPM bucket per model.
  */
 export function getLimiter(model: string, opts: RateLimiterOptions = {}): RateLimiter {
   const existing = registry.get(model);
