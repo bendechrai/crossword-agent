@@ -1,0 +1,6 @@
+{
+  "name": "sampling-max-tokens-fixture",
+  "sampling": {
+    "maxTokens": 1024
+  }
+}

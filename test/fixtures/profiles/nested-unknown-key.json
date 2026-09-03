@@ -1,0 +1,7 @@
+{
+  "name": "typo",
+  "extends": "patient",
+  "search": {
+    "maxBactracks": 999
+  }
+}

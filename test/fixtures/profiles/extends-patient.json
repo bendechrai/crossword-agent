@@ -1,0 +1,7 @@
+{
+  "name": "extends-patient-fixture",
+  "extends": "patient",
+  "search": {
+    "ldsLimitMax": 7
+  }
+}
