@@ -1,0 +1,22 @@
+services:
+  solver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crossword-solver
+    # NEBIUS_API_KEY, optional NEBIUS_BASE_URL. Marked not required so the
+    # image still builds and `docker compose config` still parses on a fresh
+    # clone that has not copied .env.example to .env yet.
+    env_file:
+      - path: .env
+        required: false
+    working_dir: /app
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    # No ports are published: this is a CLI.
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+
+volumes:
+  node_modules: {}

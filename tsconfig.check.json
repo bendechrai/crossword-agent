@@ -1,0 +1,13 @@
+{
+  // The whole-repository typecheck: `tsconfig.json` is the build config and
+  // emits `dist/cli/index.js` from `src/` alone, so tests, scripts and the
+  // tool configs are checked here instead. `npm run typecheck` uses this file;
+  // `npx tsc --noEmit` on its own still checks `src/`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

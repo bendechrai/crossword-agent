@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bendechrai/crossword-agent/schemas/puzzle.schema.json",
+  "title": "Normalised puzzle file",
+  "description": "puzzles/<source>/<id>.json: a serialised PuzzleWithSolution plus schemaVersion and fetchedAt (B16). Cells are [row, col] with row 0 at the top and col 0 at the left.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "fetchedAt": { "type": "string", "format": "date-time" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+    "source": { "type": "string", "minLength": 1 },
+    "date": { "type": "string" },
+    "title": { "type": "string" },
+    "author": { "type": "string" },
+    "style": { "enum": ["american", "cryptic", "quick", "unknown"] },
+    "width": { "type": "integer", "minimum": 1 },
+    "height": { "type": "integer", "minimum": 1 },
+    "parsedBy": {
+      "enum": ["@xwordly/xword-parser", "xd-crossword-tools", "guardian-json"]
+    },
+    "cells": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/cell" }
+      }
+    },
+    "slots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/slot" }
+    },
+    "solution": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "fetchedAt",
+    "id",
+    "source",
+    "style",
+    "width",
+    "height",
+    "parsedBy",
+    "cells",
+    "slots",
+    "solution"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "cell": {
+      "type": "object",
+      "properties": {
+        "row": { "type": "integer", "minimum": 0 },
+        "col": { "type": "integer", "minimum": 0 },
+        "block": { "type": "boolean" },
+        "number": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["row", "col", "block"],
+      "additionalProperties": false
+    },
+    "slot": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[0-9]+[AD]$" },
+        "number": { "type": "integer", "minimum": 1 },
+        "direction": { "enum": ["across", "down"] },
+        "row": { "type": "integer", "minimum": 0 },
+        "col": { "type": "integer", "minimum": 0 },
+        "length": { "type": "integer", "minimum": 2 },
+        "clue": { "type": "string" },
+        "enumeration": { "type": "string" },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              { "type": "integer", "minimum": 0 },
+              { "type": "integer", "minimum": 0 }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "required": ["id", "number", "direction", "row", "col", "length", "clue", "cells"],
+      "additionalProperties": false
+    }
+  }
+}

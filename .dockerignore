@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+dist
+runs
+logs
+cache
+corpora
+data
+puzzles
+.env
+.env.*
+!.env.example
+*.log

@@ -1,0 +1,50 @@
+{
+  "name": "crossword-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LLM candidate oracle wrapped in a deterministic crossword constraint search",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "xw": "./bin/xw.js",
+    "crossword": "./bin/xw.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "preflight": "npm run lint && npm run typecheck && npm test",
+    "wordlist:fetch": "tsx scripts/wordlist-fetch.ts",
+    "fixtures:refresh": "tsx scripts/fixtures-refresh.ts",
+    "smoke:dist": "node dist/cli/index.js --version"
+  },
+  "dependencies": {
+    "@xwordly/xword-parser": "1.1.0",
+    "adm-zip": "0.6.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "chalk": "6.0.0",
+    "commander": "15.0.0",
+    "log-update": "8.0.0",
+    "lru-cache": "11.5.2",
+    "uuid": "14.0.2",
+    "xd-crossword-tools": "14.1.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "0.5.8",
+    "@types/node": "26.4.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "10.9.1",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.69.0",
+    "vitest": "4.1.11"
+  }
+}

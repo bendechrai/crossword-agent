@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bendechrai/crossword-agent/schemas/run-record.schema.json",
+  "title": "Run record",
+  "description": "runs/<runId>.json. Every number here is derivable from the inference log plus the event stream, which is the point of keeping both.",
+  "type": "object",
+  "properties": {
+    "runId": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["ok", "partial", "error"] },
+    "error": { "type": "string" },
+    "puzzle": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "source": { "type": "string" },
+        "style": { "enum": ["american", "cryptic", "quick", "unknown"] },
+        "stratum": { "enum": ["american", "cryptic"] },
+        "size": { "type": "string", "pattern": "^[0-9]+x[0-9]+$" },
+        "slots": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "source", "style", "stratum", "size", "slots"],
+      "additionalProperties": false
+    },
+    "profile": { "$ref": "#/$defs/profile" },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "gitCommit": { "type": "string", "minLength": 1 },
+        "nodeVersion": { "type": "string", "minLength": 1 },
+        "packageVersion": { "type": "string", "minLength": 1 },
+        "profileSource": { "type": "string", "minLength": 1 }
+      },
+      "required": ["gitCommit", "nodeVersion", "packageVersion", "profileSource"],
+      "additionalProperties": false
+    },
+    "repeatIndex": { "type": "integer", "minimum": 0 },
+    "seed": { "type": ["integer", "null"] },
+    "models": {
+      "type": "object",
+      "properties": {
+        "tier1": { "type": "string" },
+        "tier2": { "type": "string" }
+      },
+      "required": ["tier1", "tier2"],
+      "additionalProperties": false
+    },
+    "accuracy": { "$ref": "#/$defs/accuracy" },
+    "perSlot": { "type": "array", "items": { "$ref": "#/$defs/perSlot" } },
+    "calls": {
+      "type": "object",
+      "properties": {
+        "tier1": { "$ref": "#/$defs/tierCalls" },
+        "tier2": { "$ref": "#/$defs/tierCalls" }
+      },
+      "required": ["tier1", "tier2"],
+      "additionalProperties": false
+    },
+    "search": {
+      "type": "object",
+      "properties": {
+        "backtracks": { "type": "integer", "minimum": 0 },
+        "discrepancies": { "type": "integer", "minimum": 0 },
+        "wipeouts": { "type": "integer", "minimum": 0 },
+        "ac3Reductions": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["backtracks", "discrepancies", "wipeouts", "ac3Reductions"],
+      "additionalProperties": false
+    },
+    "repair": {
+      "type": "object",
+      "properties": {
+        "proposals": { "type": "integer", "minimum": 0 },
+        "accepted": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["proposals", "accepted"],
+      "additionalProperties": false
+    },
+    "wallMs": { "type": "number", "minimum": 0 },
+    "budgetHits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cap": {
+            "enum": ["usd", "tokens", "wallMs", "tier2Calls", "backtracks", "repairCalls"]
+          },
+          "limit": { "type": "number" },
+          "actual": { "type": "number" },
+          "atMs": { "type": "number" }
+        },
+        "required": ["cap", "limit", "actual", "atMs"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "runId",
+    "timestamp",
+    "status",
+    "puzzle",
+    "profile",
+    "provenance",
+    "repeatIndex",
+    "seed",
+    "models",
+    "accuracy",
+    "perSlot",
+    "calls",
+    "search",
+    "repair",
+    "wallMs",
+    "budgetHits"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "accuracy": {
+      "type": "object",
+      "properties": {
+        "letters": { "type": "number", "minimum": 0, "maximum": 1 },
+        "words": { "type": "number", "minimum": 0, "maximum": 1 },
+        "perfect": { "type": "boolean" },
+        "emptyCells": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["letters", "words", "perfect", "emptyCells"],
+      "additionalProperties": false
+    },
+    "rejectCounts": {
+      "type": "object",
+      "properties": {
+        "length": { "type": "integer", "minimum": 0 },
+        "charset": { "type": "integer", "minimum": 0 },
+        "pattern": { "type": "integer", "minimum": 0 },
+        "clue-echo": { "type": "integer", "minimum": 0 },
+        "duplicate": { "type": "integer", "minimum": 0 },
+        "rejected-before": { "type": "integer", "minimum": 0 }
+      },
+      "required": [
+        "length",
+        "charset",
+        "pattern",
+        "clue-echo",
+        "duplicate",
+        "rejected-before"
+      ],
+      "additionalProperties": false
+    },
+    "perSlot": {
+      "type": "object",
+      "properties": {
+        "slotId": { "type": "string", "pattern": "^[0-9]+[AD]$" },
+        "clue": { "type": "string" },
+        "length": { "type": "integer", "minimum": 1 },
+        "truth": { "type": "string" },
+        "filled": { "type": ["string", "null"] },
+        "correct": { "type": "boolean" },
+        "producedBy": { "enum": [1, 2, "wordlist", null] },
+        "batchIndex": { "type": ["integer", "null"], "minimum": 0 },
+        "truthInCandidates": { "type": "boolean" },
+        "truthRank": { "type": ["integer", "null"], "minimum": 0 },
+        "rejectCounts": { "$ref": "#/$defs/rejectCounts" },
+        "parseFailures": { "type": "integer", "minimum": 0 },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "usd": { "type": "number", "minimum": 0 },
+        "reasks": { "type": "integer", "minimum": 0 },
+        "escalated": { "type": "boolean" },
+        "candidatesSeen": { "type": "integer", "minimum": 0 },
+        "pickedRank": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "required": [
+        "slotId",
+        "clue",
+        "length",
+        "truth",
+        "filled",
+        "correct",
+        "producedBy",
+        "batchIndex",
+        "truthInCandidates",
+        "truthRank",
+        "rejectCounts",
+        "parseFailures",
+        "latencyMs",
+        "usd",
+        "reasks",
+        "escalated",
+        "candidatesSeen",
+        "pickedRank"
+      ],
+      "additionalProperties": false
+    },
+    "tierCalls": {
+      "type": "object",
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "promptTokens": { "type": "integer", "minimum": 0 },
+        "completionTokens": { "type": "integer", "minimum": 0 },
+        "reasoningTokens": { "type": "integer", "minimum": 0 },
+        "usdBilled": { "type": "number", "minimum": 0 },
+        "usdCounterfactual": { "type": "number", "minimum": 0 },
+        "cacheHits": { "type": "integer", "minimum": 0 },
+        "avgLatencyMs": { "type": "number", "minimum": 0 }
+      },
+      "required": [
+        "count",
+        "promptTokens",
+        "completionTokens",
+        "reasoningTokens",
+        "usdBilled",
+        "usdCounterfactual",
+        "cacheHits",
+        "avgLatencyMs"
+      ],
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "description": "The fully resolved Profile, exactly as the run used it. Validated in full by ProfileSchema (zod); the required keys here are what a run record must carry so that it round-trips back into solve --profile.",
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "tier1": { "type": "string" },
+        "tier2": { "type": "string" },
+        "candidatesPerAsk": { "type": "integer", "minimum": 1, "maximum": 25 },
+        "calibration": { "enum": ["rank", "votes", "blend"] },
+        "samples": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "batchSize": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "reasksPerSlot": { "type": "integer", "minimum": 0 },
+        "sampling": {
+          "type": "object",
+          "properties": {
+            "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+            "topP": { "type": "number", "minimum": 0, "maximum": 1 },
+            "maxTokens": { "type": "integer", "minimum": 64, "maximum": 4096 }
+          },
+          "required": ["temperature", "maxTokens"],
+          "additionalProperties": false
+        },
+        "escalation": {
+          "type": "object",
+          "properties": {
+            "policy": { "enum": ["reask-first", "eager", "patient"] },
+            "clueUnderstoodThreshold": { "type": "number" },
+            "maxTier2CallsPerPuzzle": { "type": "integer" },
+            "escalationsPerSlot": { "type": "integer" }
+          },
+          "required": [
+            "policy",
+            "clueUnderstoodThreshold",
+            "maxTier2CallsPerPuzzle",
+            "escalationsPerSlot"
+          ],
+          "additionalProperties": false
+        },
+        "search": {
+          "type": "object",
+          "properties": {
+            "ordering": { "enum": ["margin", "mrv"] },
+            "ldsLimitStart": { "type": "integer" },
+            "ldsLimitMax": { "type": "integer" },
+            "maxBacktracks": { "type": "integer" }
+          },
+          "required": ["ordering", "ldsLimitStart", "ldsLimitMax", "maxBacktracks"],
+          "additionalProperties": false
+        },
+        "repair": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "maxCalls": { "type": "integer" },
+            "maxEditDistance": { "type": "integer", "minimum": 1, "maximum": 2 }
+          },
+          "required": ["enabled", "maxCalls", "maxEditDistance"],
+          "additionalProperties": false
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "usd": { "type": "number" },
+            "tokens": { "type": "integer" },
+            "wallMs": { "type": "number" }
+          },
+          "required": ["usd", "tokens", "wallMs"],
+          "additionalProperties": false
+        },
+        "rateLimit": {
+          "type": "object",
+          "properties": {
+            "rpsFraction": { "type": "number" },
+            "maxConcurrencyTier1": { "type": "integer" },
+            "maxConcurrencyTier2": { "type": "integer" }
+          },
+          "required": ["rpsFraction", "maxConcurrencyTier1", "maxConcurrencyTier2"],
+          "additionalProperties": false
+        },
+        "promptVersion": { "type": "string" }
+      },
+      "required": [
+        "name",
+        "tier1",
+        "tier2",
+        "candidatesPerAsk",
+        "calibration",
+        "samples",
+        "batchSize",
+        "reasksPerSlot",
+        "sampling",
+        "escalation",
+        "search",
+        "repair",
+        "budget",
+        "rateLimit",
+        "promptVersion"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bendechrai/crossword-agent/schemas/candidate-response.schema.json",
+  "title": "Candidate response",
+  "description": "What the model returns. The single-clue form is the batchSize 1 case; the batched form carries one result per clue, keyed by the id the prompt supplied, so the parser realigns by id and never by position.",
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "properties": {
+        "answer": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["answer", "confidence"],
+      "additionalProperties": false
+    },
+    "single": {
+      "type": "object",
+      "properties": {
+        "clue_understood": { "type": "number", "minimum": 0, "maximum": 1 },
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/candidate" }
+        },
+        "notes": { "type": "string" }
+      },
+      "required": ["clue_understood", "candidates"],
+      "additionalProperties": false
+    },
+    "batchedResult": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "clue_understood": { "type": "number", "minimum": 0, "maximum": 1 },
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/candidate" }
+        },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "clue_understood", "candidates"],
+      "additionalProperties": false
+    },
+    "batched": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/batchedResult" }
+        }
+      },
+      "required": ["results"],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [{ "$ref": "#/$defs/single" }, { "$ref": "#/$defs/batched" }]
+}
