@@ -1,0 +1,7 @@
+{
+  "name": "tiny",
+  "puzzles": [
+    { "id": "synthetic-5x5", "stratum": "american" },
+    { "id": "synthetic-7x7", "stratum": "american" }
+  ]
+}
