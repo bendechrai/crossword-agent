@@ -45,9 +45,9 @@ describe('openWordList against the committed fixture', () => {
   it('normalises the lookup word first, so a lowercase or accented spelling still resolves (B35 decision: has("FIANCEE") works)', () => {
     expect(list.has('FIANCEE')).toBe(true);
     expect(list.has('fiancee')).toBe(true);
-    // é is accented e (fiancée); NFD-decompose + strip combining
+    // e-acute (U+00E9) in "fiancee" below; NFD-decompose + strip combining
     // marks (T6's normaliseAnswer, reused here) reduces it to plain FIANCEE.
-    expect(list.has('fiancée')).toBe(true);
+    expect(list.has('fianc\u00e9e')).toBe(true);
   });
 
   it('score is in [0,1], and the higher-scored of two fixture words compares greater (acceptance 2)', () => {
@@ -204,7 +204,7 @@ describe('parseWordList', () => {
   });
 
   it('normalises the word half the same way T6 normalises candidate answers (accents, case)', () => {
-    const { entries } = parseWordList('fiancée;90\n');
+    const { entries } = parseWordList('fianc\u00e9e;90\n');
     expect(entries.get('FIANCEE')).toBeCloseTo(0.9, 6);
   });
 
