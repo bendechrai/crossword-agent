@@ -1,0 +1,38 @@
+{
+  "version": "http://ipuz.org/v2",
+  "kind": ["http://ipuz.org/crossword#1"],
+  "dimensions": { "width": 5, "height": 5 },
+  "title": "Synthetic five",
+  "author": "crossword-agent",
+  "puzzle": [
+    [1, 2, "#", 3, 4],
+    [5, 0, 6, 0, 0],
+    [7, 0, 0, 0, 0],
+    [8, 0, 0, 0, 0],
+    ["#", 0, "#", 9, 0]
+  ],
+  "solution": [
+    ["O", "H", "#", "P", "I"],
+    ["R", "A", "Y", "O", "N"],
+    ["A", "V", "O", "I", "D"],
+    ["L", "O", "U", "S", "E"],
+    ["#", "C", "#", "E", "X"]
+  ],
+  "clues": {
+    "Across": [
+      [1, "Cry of surprise"],
+      [3, "Greek letter of a famous ratio"],
+      [5, "Synthetic silk-like fabric"],
+      [7, "Steer clear of"],
+      [8, "Small parasitic insect"],
+      [9, "Former partner"]
+    ],
+    "Down": [
+      [1, "Spoken rather than written"],
+      [2, "Chaos and destruction"],
+      [3, "Calm self-assurance"],
+      [4, "Alphabetical list at the back of a book"],
+      [6, "The person being addressed"]
+    ]
+  }
+}
