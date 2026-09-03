@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,14 @@ import type { ProfileInput } from '../../../src/profiles/schema.js';
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../fixtures/profiles');
 const fixture = (name: string): string => join(FIXTURES_DIR, name);
+
+/**
+ * File permission bits do not restrain root, so a chmod 000 file is still
+ * readable when the suite runs as root - which it does inside the preflight
+ * container (the image sets no USER). The EACCES test below is skipped there
+ * rather than asserting something the platform cannot produce.
+ */
+const RUNNING_AS_ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
 
 async function expectCliError(fn: () => Promise<unknown>, code: ExitCode): Promise<CliError> {
   let error: unknown;
@@ -88,6 +96,12 @@ describe('resolveProfile - built-in and file resolution', () => {
 
   it('a profile spec that is neither a built-in nor an existing file is a usage error', async () => {
     await expectCliError(() => resolveProfile({ profile: 'no-such-profile-or-file' }), ExitCode.USAGE);
+  });
+
+  it('a profile spec naming an existing directory is a usage error, not a raw EISDIR', async () => {
+    // FIXTURES_DIR exists, so an `existsSync`-style check would pass it
+    // through to readFile and let Node's EISDIR escape as exit 1.
+    await expectCliError(() => resolveProfile({ profile: FIXTURES_DIR }), ExitCode.USAGE);
   });
 
   // A name that is an `Object.prototype` member is no more a profile than any
@@ -231,6 +245,45 @@ describe('loadConfig - four-source precedence and absence (Acceptance 6)', () =>
     );
   });
 
+  it('an explicitly named config path that is a directory is a usage error, not a raw EISDIR', async () => {
+    const dirPath = join(dir, 'configs');
+    await mkdir(dirPath);
+    const error = await expectCliError(
+      () => loadConfig({ cwd: dir, env: {}, path: dirPath }),
+      ExitCode.USAGE,
+    );
+    expect(error.message).toContain(dirPath);
+  });
+
+  it('$CROSSWORD_CONFIG naming a directory is a usage error, not a raw EISDIR', async () => {
+    const dirPath = join(dir, 'env-configs');
+    await mkdir(dirPath);
+    await expectCliError(
+      () => loadConfig({ cwd: dir, env: { CROSSWORD_CONFIG: dirPath } }),
+      ExitCode.USAGE,
+    );
+  });
+
+  it('a ./crossword.config.json that is a directory is a usage error, not a raw EISDIR', async () => {
+    // The implicit path is allowed to be *absent*, but one that exists and
+    // cannot be read as JSON is still a usage error rather than a crash.
+    await mkdir(join(dir, 'crossword.config.json'));
+    await expectCliError(() => loadConfig({ cwd: dir, env: {} }), ExitCode.USAGE);
+  });
+
+  it.skipIf(RUNNING_AS_ROOT)('an unreadable config file is a usage error, not a raw EACCES', async () => {
+    const path = join(dir, 'crossword.config.json');
+    await writeFile(path, JSON.stringify({ defaultProfile: 'patient' }));
+    await chmod(path, 0o000);
+    try {
+      const error = await expectCliError(() => loadConfig({ cwd: dir, env: {} }), ExitCode.USAGE);
+      expect(error.message).toContain('cannot read config file');
+    } finally {
+      // Restored so the afterEach cleanup is not fighting the mode bits.
+      await chmod(path, 0o600);
+    }
+  });
+
   it('an unknown key in the config file is a usage error naming it', async () => {
     const path = join(dir, 'crossword.config.json');
     await writeFile(path, JSON.stringify({ cachDir: 'typo' }));
@@ -252,6 +305,14 @@ describe('loadConfig - four-source precedence and absence (Acceptance 6)', () =>
     await writeFile(path, JSON.stringify({ defaultProfile: 'my-profile.json' }));
     const result = await loadConfig({ cwd: dir, env: {} });
     expect(result.config.defaultProfile).toBe('my-profile.json');
+  });
+
+  it('a defaultProfile naming a directory is a load-time usage error, not a file', async () => {
+    await mkdir(join(dir, 'my-profiles'));
+    const path = join(dir, 'crossword.config.json');
+    await writeFile(path, JSON.stringify({ defaultProfile: 'my-profiles' }));
+    const error = await expectCliError(() => loadConfig({ cwd: dir, env: {} }), ExitCode.USAGE);
+    expect(error.message).toContain('my-profiles');
   });
 
   it('a defaultProfile naming neither a built-in nor an existing file is a load-time usage error (T23 decision)', async () => {

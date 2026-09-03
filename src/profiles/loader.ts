@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { usageError } from '../cli/exit.js';
+import { pathKind } from '../config.js';
 import type { AppConfig } from '../config.js';
 import { builtinNames, getBuiltin } from './builtins.js';
 import { PROFILE_SOURCE_BUILTIN, ProfileSchema } from './schema.js';
@@ -157,14 +158,24 @@ async function resolveProfileSpec(spec: string): Promise<ProfileSpecResolution> 
   }
 
   const absPath = resolve(spec);
-  let text: string;
-  try {
-    text = await readFile(absPath, 'utf8');
-  } catch {
+  if (pathKind(absPath) !== 'file') {
+    // Absent, or present but not a regular file (a directory such as
+    // `--profile ./profiles`): neither is a profile, and neither should reach
+    // `readFile` and escape as a raw ENOENT/EISDIR.
     throw usageError(
       `unknown profile "${spec}"`,
       `expected a built-in (${builtinNames().join(', ')}) or an existing profile file`,
     );
+  }
+
+  // A regular file can still be unreadable (EACCES), or be replaced between
+  // the check above and the read; that is a usage error, not a crash, and it
+  // says why rather than claiming the profile is unknown.
+  let text: string;
+  try {
+    text = await readFile(absPath, 'utf8');
+  } catch (e) {
+    throw usageError(`cannot read profile file ${absPath}: ${(e as Error).message}`);
   }
 
   let raw: unknown;

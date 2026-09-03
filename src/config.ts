@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 
@@ -14,6 +14,32 @@ import { builtinNames } from './profiles/builtins.js';
  * imports `node:os` (the acceptance test pins this by scanning the source
  * text of this file for Node's home-directory lookup function).
  */
+/**
+ * What a path on disk turns out to be: a regular file, something else (most
+ * often a directory), or nothing reachable at all.
+ */
+export type PathKind = 'file' | 'other' | 'absent';
+
+/**
+ * Classifies `path` without ever letting a raw Node error escape. `statSync`
+ * throws for a path that does not exist and for one whose parent directory
+ * cannot be searched; both become `'absent'` here, leaving every caller free
+ * to raise the `CliError` its own context calls for rather than crashing the
+ * CLI with a stack trace (exit 1) where a usage error (exit 2) is meant.
+ *
+ * It is exported because `src/profiles/loader.ts` needs exactly the same
+ * check before it reads a profile file, and the two config-loading paths must
+ * not drift apart. It does not live in `src/util/fs.ts` because that module
+ * belongs to another task.
+ */
+export function pathKind(path: string): PathKind {
+  try {
+    return statSync(path).isFile() ? 'file' : 'other';
+  } catch {
+    return 'absent';
+  }
+}
+
 export interface AppConfig {
   defaultProfile?: string;
   cacheDir?: string;
@@ -99,14 +125,32 @@ export async function loadConfig(opts: LoadConfigOptions = {}): Promise<LoadedCo
 
   const absPath = isAbsolute(candidate) ? candidate : resolve(cwd, candidate);
 
-  if (!existsSync(absPath)) {
+  const kind = pathKind(absPath);
+  if (kind === 'absent') {
     if (explicit) {
       throw usageError(`config file not found: ${absPath}`);
     }
     return { config: {}, path: null };
   }
+  if (kind !== 'file') {
+    // `--config ./configs`, `CROSSWORD_CONFIG=/some/dir`, or a directory named
+    // `crossword.config.json` sitting in the working directory. Reading it
+    // would throw EISDIR out of this module and exit 1 with a stack trace;
+    // it is a usage error like every other bad config path.
+    throw usageError(
+      `config file is not a regular file: ${absPath}`,
+      'expected a path to a JSON file',
+    );
+  }
 
-  const text = await readFile(absPath, 'utf8');
+  // Still guarded even after the check above: the file can be unreadable
+  // (EACCES), or can be replaced between the stat and the read.
+  let text: string;
+  try {
+    text = await readFile(absPath, 'utf8');
+  } catch (e) {
+    throw usageError(`cannot read config file ${absPath}: ${(e as Error).message}`);
+  }
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -135,7 +179,7 @@ export async function loadConfig(opts: LoadConfigOptions = {}): Promise<LoadedCo
   if (defaultProfile !== undefined) {
     const isKnownBuiltin = builtinNames().includes(defaultProfile);
     const profilePath = isAbsolute(defaultProfile) ? defaultProfile : resolve(cwd, defaultProfile);
-    const isExistingFile = existsSync(profilePath);
+    const isExistingFile = pathKind(profilePath) === 'file';
     if (!isKnownBuiltin && !isExistingFile) {
       throw usageError(
         `config file ${absPath} names unknown defaultProfile "${defaultProfile}"`,
