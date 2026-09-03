@@ -1,0 +1,5 @@
+#!/bin/sh
+# Host-side sugar over the documented form:
+#   docker exec -it crossword-solver xw <args>
+# The container must already be up (docker compose up -d).
+exec docker exec -it crossword-solver xw "$@"
