@@ -9,8 +9,13 @@ import type { CandidateServiceDeps } from '../candidates/service.js';
 import { pathKind, loadConfig } from '../config.js';
 import { aggregate } from '../eval/aggregate.js';
 import type { Aggregation } from '../eval/aggregate.js';
-import { createRunRecorder } from '../eval/runRecorder.js';
-import type { RunRecorderOptions, RunRecorderPuzzleInfo } from '../eval/runRecorder.js';
+import { IndexUpsertError, createRunRecorder } from '../eval/runRecorder.js';
+import type {
+  RunRecorder,
+  RunRecorderIndexUpdate,
+  RunRecorderOptions,
+  RunRecorderPuzzleInfo,
+} from '../eval/runRecorder.js';
 import { score } from '../eval/scorer.js';
 import type { RunRecord, RunStatus } from '../eval/types.js';
 import { createEventBus } from '../events/bus.js';
@@ -24,9 +29,15 @@ import type { InferenceLog } from '../llm/types.js';
 import { createBudgetTracker, resolveBudget } from '../policy/budget.js';
 import { resolveProfile } from '../profiles/loader.js';
 import type { Profile, ProfileSource } from '../profiles/schema.js';
-import { loadPuzzleById, loadSolution } from '../puzzle/library.js';
+import { loadPuzzleById, readIndex, readNormalised, upsertIndexRow } from '../puzzle/library.js';
 import type { LibraryOptions } from '../puzzle/library.js';
-import type { Puzzle, Slot, Stratum } from '../puzzle/types.js';
+import type {
+  NormalisedPuzzleFile,
+  Puzzle,
+  PuzzleIndexRow,
+  Slot,
+  Stratum,
+} from '../puzzle/types.js';
 import { ac3 } from '../solver/ac3.js';
 import { createSearchHooks } from '../solver/hooks.js';
 import type { SearchHooksDeps } from '../solver/hooks.js';
@@ -370,9 +381,58 @@ interface CellOutcome {
   runId: string;
 }
 
+/**
+ * The `RunRecorderIndexUpdate` that lets `RunRecorder` refresh this puzzle's
+ * `bestLetterAccuracy` and `lastRunAt` row in `puzzles/index.json` when the
+ * run ends (spec "Library layout"), mirroring `resolvePuzzle` in
+ * src/cli/solve.ts.
+ *
+ * As there, a puzzle the library has never indexed (a normalised file with
+ * no `puzzles/index.json` row) yields `false` rather than a fabricated row:
+ * `files.original`'s path is not derivable from the normalised file alone.
+ */
+async function buildIndexUpdate(
+  file: NormalisedPuzzleFile,
+  libraryOptions: LibraryOptions,
+): Promise<RunRecorderIndexUpdate | false> {
+  const rows = await readIndex(libraryOptions);
+  const previousRow: PuzzleIndexRow | undefined = rows.find((row) => row.id === file.id);
+  if (previousRow === undefined) return false;
+  return {
+    upsertIndexRow: (row) => upsertIndexRow(row, libraryOptions),
+    date: file.date ?? null,
+    title: file.title ?? null,
+    width: file.width,
+    height: file.height,
+    files: previousRow.files,
+    parsedBy: file.parsedBy,
+    previousRow,
+  };
+}
+
+/**
+ * `RunRecorder.written()`, with the one rejection that is not a lost run
+ * absorbed: `IndexUpsertError` means the run record itself is durable at
+ * `error.recordPath` and only the `puzzles/index.json` upsert failed - which
+ * at `--concurrency` 2 or more is exactly B34's 5 s `puzzles/.index.lock`
+ * timeout. Reported to stderr and otherwise ignored, so the run still counts
+ * towards the summary and does not flip the command's exit code (T17's note
+ * for T45/T47; src/cli/solve.ts handles it the same way). Every other
+ * rejection is a genuinely lost record and propagates.
+ */
+async function awaitWritten(recorder: RunRecorder, stderr: NodeJS.WritableStream): Promise<void> {
+  try {
+    await recorder.written();
+  } catch (cause) {
+    if (!(cause instanceof IndexUpsertError)) throw cause;
+    stderr.write(`${cause.message}\n`);
+  }
+}
+
 async function executeCell(cell: MatrixCell, deps: CellSharedDeps): Promise<CellOutcome> {
   let puzzle: Puzzle | null = null;
   let solution: string[][] = [];
+  let indexUpdate: RunRecorderIndexUpdate | false = false;
   let puzzleInfo: RunRecorderPuzzleInfo = {
     id: cell.puzzleId,
     source: 'unknown',
@@ -384,7 +444,8 @@ async function executeCell(cell: MatrixCell, deps: CellSharedDeps): Promise<Cell
 
   try {
     puzzle = await loadPuzzleById(cell.puzzleId, deps.libraryOptions);
-    solution = await loadSolution(cell.puzzleId, deps.libraryOptions);
+    const file = await readNormalised(cell.puzzleId, deps.libraryOptions);
+    solution = file.solution;
     puzzleInfo = {
       id: puzzle.id,
       source: puzzle.source,
@@ -393,6 +454,15 @@ async function executeCell(cell: MatrixCell, deps: CellSharedDeps): Promise<Cell
       size: `${puzzle.width}x${puzzle.height}`,
       slots: puzzle.slots.length,
     };
+    try {
+      indexUpdate = await buildIndexUpdate(file, deps.libraryOptions);
+    } catch (cause) {
+      // An unreadable puzzles/index.json costs this run its index row, not
+      // the run: the puzzle itself loaded, so the matrix cell still runs.
+      deps.stderr.write(
+        `bench: cannot read the puzzle index, so "${cell.puzzleId}" will not be updated in it: ${messageOf(cause)}\n`,
+      );
+    }
   } catch (cause) {
     deps.stderr.write(`bench: could not load puzzle "${cell.puzzleId}": ${messageOf(cause)}\n`);
   }
@@ -403,8 +473,12 @@ async function executeCell(cell: MatrixCell, deps: CellSharedDeps): Promise<Cell
     profile: cell.profile,
     profileSource: cell.profileSource,
     repeatIndex: cell.repeatIndex,
-    // bench does not touch puzzles/index.json (see docs/build-notes for T47).
-    updateIndex: false,
+    // Spec "Library layout": `bestLetterAccuracy` and `lastRunAt` are
+    // "updated by RunRecorder at the end of every run" - a bench run is a
+    // run, so `xw list` must not go stale behind one. `upsertIndexRow`'s
+    // puzzles/.index.lock (B34) is what makes this safe at `--concurrency`
+    // 2 or more; `false` only when the library has no row to update.
+    updateIndex: indexUpdate,
   };
   const recorder = createRunRecorder(recorderOptions);
   const runId = recorder.record().runId;
@@ -422,7 +496,7 @@ async function executeCell(cell: MatrixCell, deps: CellSharedDeps): Promise<Cell
   async function finishAsError(): Promise<RunRecord | null> {
     try {
       bus.emit({ type: 'run:end', status: 'error', wallMs: 0 });
-      await recorder.written();
+      await awaitWritten(recorder, deps.stderr);
       return recorder.record();
     } catch (cause) {
       deps.stderr.write(
@@ -506,7 +580,7 @@ async function executeCell(cell: MatrixCell, deps: CellSharedDeps): Promise<Cell
     };
 
     await deps.solve(solveDeps, cell.profile, solveOpts);
-    await recorder.written();
+    await awaitWritten(recorder, deps.stderr);
     record = recorder.record();
     status = record.status;
   } catch (cause) {
@@ -569,12 +643,14 @@ function renderSummaryTable(aggregation: Aggregation): string {
  * Precedence (B28): profiles and the puzzle set are resolved and validated
  * before any run starts, so a usage error never costs money. The pre-flight
  * estimate (B45) and the mid-matrix ceiling both price every call as if cold
- * (`usdCounterfactual`, B2, per this task's own orchestrator note - see
- * "Deviations" in docs/build-notes for the spec-text conflict this
- * resolves), so a warm cache never makes an expensive matrix look free.
- * Concurrency is over runs, not over slots (spec): the per-model rate
- * limiter (src/llm/rateLimiter.ts) is a process-wide registry keyed by model
- * id, so every concurrent run naturally shares it with no extra wiring here.
+ * (`usdCounterfactual`, B2, and this task block's own "Decisions baked in"),
+ * so a warm cache never makes an expensive matrix look free. Concurrency is
+ * over runs, not over slots (spec): the per-model rate limiter
+ * (src/llm/rateLimiter.ts) is a process-wide registry keyed by model id, so
+ * every concurrent run naturally shares it with no extra wiring here. Each
+ * finished run refreshes its `puzzles/index.json` row through `RunRecorder`
+ * (spec "Library layout"), serialised by that module's `puzzles/.index.lock`
+ * so concurrent runs do not lose rows.
  */
 export async function benchCommand(
   puzzleSetArg: string,

@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { PassThrough } from 'node:stream';
@@ -20,6 +21,7 @@ import { CliError, ExitCode, isCliError } from '../../../src/cli/exit.js';
 import type { BenchOptions, GlobalOptions } from '../../../src/cli/options.js';
 import type { RunRecord, RunStatus } from '../../../src/eval/types.js';
 import type { Profile } from '../../../src/profiles/schema.js';
+import type { PuzzleIndexRow } from '../../../src/puzzle/types.js';
 import type { SolveOrchestrationDeps, SolveOrchestrationResult } from '../../../src/solver/solve.js';
 import type { SolveOptions as SolveRunOptions } from '../../../src/solver/types.js';
 
@@ -76,6 +78,37 @@ function libraryWithSyntheticFixtures(): string {
   copyFileSync(JSON_5X5_PATH, join(sourceDir, 'synthetic-5x5.json'));
   copyFileSync(JSON_7X7_PATH, join(sourceDir, 'synthetic-7x7.json'));
   return dir;
+}
+
+/**
+ * One `puzzles/index.json` row per given id, as `xw fetch` would have left
+ * it: never run, so `bestLetterAccuracy` and `lastRunAt` are still null.
+ */
+function writeIndex(puzzlesDir: string, ids: readonly string[]): void {
+  const rows: PuzzleIndexRow[] = ids.map((id) => ({
+    id,
+    source: 'synthetic',
+    date: null,
+    title: null,
+    style: 'american',
+    width: 5,
+    height: 5,
+    slotCount: 4,
+    files: {
+      original: `puzzles/originals/${id}.json`,
+      normalised: `puzzles/synthetic/${id}.json`,
+    },
+    schemaVersion: 1,
+    parsedBy: 'xd-crossword-tools',
+    addedAt: '2026-01-01T00:00:00.000Z',
+    bestLetterAccuracy: null,
+    lastRunAt: null,
+  }));
+  writeFileSync(join(puzzlesDir, 'index.json'), `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
+}
+
+function readIndexRows(puzzlesDir: string): PuzzleIndexRow[] {
+  return JSON.parse(readFileSync(join(puzzlesDir, 'index.json'), 'utf8')) as PuzzleIndexRow[];
 }
 
 /** Every real filesystem location this handler touches, redirected under tmp dirs. */
@@ -342,6 +375,56 @@ describe('benchCommand', () => {
       'usd per puzzle',
       'usd per correct word',
     ]);
+  });
+
+  it('upserts bestLetterAccuracy and lastRunAt into puzzles/index.json for every indexed run', async () => {
+    const { fn } = mockSolve();
+    const overrides = baseOverrides();
+    const puzzlesDir = overrides.puzzlesDir as string;
+    writeIndex(puzzlesDir, ['synthetic-5x5', 'synthetic-7x7']);
+
+    await benchCommand(SET_PATH, benchOptions(), GLOBAL, { ...overrides, solve: fn });
+
+    const rows = readIndexRows(puzzlesDir);
+    expect(rows.map((r) => r.id).sort()).toEqual(['synthetic-5x5', 'synthetic-7x7']);
+    const records = readRunRecords(overrides.runsDir as string);
+    for (const row of rows) {
+      // Both rows started at null; the bench run is what filled them in.
+      expect(row.lastRunAt).not.toBeNull();
+      const record = records.find((r) => r.puzzle.id === row.id);
+      expect(record).toBeDefined();
+      expect(row.lastRunAt).toBe(record?.timestamp);
+      expect(row.bestLetterAccuracy).toBe(record?.accuracy.letters);
+      // Untouched fields survive the upsert.
+      expect(row.addedAt).toBe('2026-01-01T00:00:00.000Z');
+      expect(row.files.original).toBe(`puzzles/originals/${row.id}.json`);
+    }
+  });
+
+  it('keeps every index row at concurrency 2 with --repeat 2 (the puzzles/.index.lock case)', async () => {
+    const { fn } = mockSolve();
+    const overrides = baseOverrides();
+    const puzzlesDir = overrides.puzzlesDir as string;
+    writeIndex(puzzlesDir, ['synthetic-5x5', 'synthetic-7x7']);
+
+    await benchCommand(SET_PATH, benchOptions({ repeat: 2, concurrency: 2 }), GLOBAL, {
+      ...overrides,
+      solve: fn,
+    });
+
+    const rows = readIndexRows(puzzlesDir);
+    expect(rows.map((r) => r.id).sort()).toEqual(['synthetic-5x5', 'synthetic-7x7']);
+    expect(rows.every((r) => r.lastRunAt !== null)).toBe(true);
+  });
+
+  it('leaves an unindexed library alone rather than fabricating a row', async () => {
+    const { fn } = mockSolve();
+    const overrides = baseOverrides();
+    const puzzlesDir = overrides.puzzlesDir as string;
+
+    await benchCommand(SET_PATH, benchOptions(), GLOBAL, { ...overrides, solve: fn });
+
+    expect(existsSync(join(puzzlesDir, 'index.json'))).toBe(false);
   });
 
   it('writes runs under the resolved runs directory and honours puzzlesDir', async () => {
