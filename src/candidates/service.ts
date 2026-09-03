@@ -259,7 +259,11 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       cacheKey: input.key,
       cacheHit: input.cacheHit,
       batchSize: prepared.batchSize,
-      batchIndex: input.batchIndex,
+      // A hit made no call, so it has no position within one: the frozen
+      // contract says `batchIndex` is null on a cache hit, and `xw report --by
+      // batchIndex` counts positional samples with it. Nulled here, next to
+      // `request` and `rawResponse`, so no call site can get it wrong.
+      batchIndex: input.cacheHit ? null : input.batchIndex,
       sampleIndex: req.sampleIndex,
       request: input.cacheHit
         ? null
@@ -547,7 +551,10 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
         req,
         prepared,
         key: keys[index] ?? '',
-        batchIndex: index,
+        // Null, not `index`: nothing was asked for this clue (spec, and
+        // `InferenceLogRecord.batchIndex`), exactly as the single-clue hit
+        // path records it.
+        batchIndex: null,
         attempt: 0,
         cacheHit: true,
         call: null,

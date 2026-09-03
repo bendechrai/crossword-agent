@@ -419,6 +419,9 @@ describe('acceptance 5: a batched response missing one id', () => {
     expect(results.get('3A')?.candidates.map((c) => c.answer)).toEqual(['CAT']);
     expect([...results.values()].every((r) => r.cacheHit)).toBe(true);
     expect(second.records.every((r) => r.cacheHit)).toBe(true);
+    // A hit has no position within a batch it never asked for, so
+    // `report --by batchIndex` never counts a replay as a positional sample.
+    expect(second.records.every((r) => r.batchIndex === null)).toBe(true);
     // Nothing was rewritten: the same three entries, unchanged.
     expect(cacheEntries()).toHaveLength(3);
   });
@@ -464,6 +467,10 @@ describe('acceptance 5: a batched response missing one id', () => {
     // The hits keep their answers and their records say so.
     const hitRecords = second.records.filter((r) => r.slotId !== '2D');
     expect(hitRecords.every((r) => r.cacheHit)).toBe(true);
+    expect(hitRecords.every((r) => r.batchIndex === null)).toBe(true);
+    // The cold re-ask is a single call, so it carries no index either.
+    expect(second.records.filter((r) => r.slotId === '2D')).toHaveLength(1);
+    expect(second.records.find((r) => r.slotId === '2D')?.batchIndex).toBeNull();
     // The two batch-3 entries survive; 2D adds one batch-1 entry.
     const entries = cacheEntries();
     expect(entries).toHaveLength(3);
@@ -548,6 +555,10 @@ describe('acceptance 7: offline (B6)', () => {
     expect(results.get('1A')?.candidates.map((c) => c.answer)).toEqual(['HAVOC']);
     expect(results.get('2D')?.cacheHit).toBe(false);
     expect(results.get('2D')?.candidates).toEqual([]);
+    // The one record written is 1A's hit, and a hit carries no batch position.
+    expect(lenient.records.map((r) => [r.slotId, r.cacheHit, r.batchIndex])).toEqual([
+      ['1A', true, null],
+    ]);
   });
 
   it('serves a cached key offline without touching the transport', async () => {
