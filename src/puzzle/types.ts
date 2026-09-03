@@ -13,7 +13,7 @@ export type PuzzleStyle = 'american' | 'cryptic' | 'quick' | 'unknown';
 export type Stratum = 'american' | 'cryptic';
 
 /** Which parser produced a puzzle (B17). */
-export type ParsedBy = '@xwordly/xword-parser' | 'xd-crossword-tools' | 'guardian-json';
+export type ParsedBy = '@xwordly/xword-parser' | 'xd-crossword-tools' | 'guardian-json' | 'xd-hand';
 
 /** File formats the loader dispatches on. `json` is our own normalised form. */
 export type PuzzleExt = 'puz' | 'ipuz' | 'jpz' | 'xd' | 'json';
