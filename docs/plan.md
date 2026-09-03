@@ -56,7 +56,7 @@ Gate between waves:
 | 0 | now | 1 |
 | 1 | T0 is merged to `main` | 23 |
 | 2 | every Wave 1 task is merged | 18 |
-| 3 | every Wave 2 task is merged | 8 |
+| 3 | every Wave 2 task is merged | 9 |
 | 4 | every Wave 3 task is merged | 5 (2 of them deferred to v1.1) |
 
 Within a wave, every task can run concurrently with every other task in the same wave: no two tasks in a wave own the same file. A task may **read** any file owned by an earlier wave (already merged) or declared by T0.
@@ -1311,6 +1311,18 @@ Starts once every Wave 2 task is merged.
   6. `logs/inference/` is not committed (B47); the report cites counts, not raw records.
 - Out of scope: changing any source file; adding parser fixtures.
 
+### T55: Wave 1 follow-ups
+- Workstream: J (infrastructure and cleanup)
+- Model: sonnet
+- Depends on: T14, T17, T5, T6, T19, T23
+- Owns: test/unit/eval/runRecorder.test.ts, src/validate/normalise.ts, test/unit/validate/normalise.test.ts, test/unit/policy/budget.test.ts
+- Reads (must not edit): test/fixtures/events/full-run.events.jsonl, src/grid/pattern.ts, src/profiles/builtins.ts, src/eval/runRecorder.ts
+- Spec sections: Testing
+- Deliverable: Three small consolidations left over from wave 1, where sibling tasks ran in parallel and could not depend on each other. (a) Re-point the RunRecord builder tests at the committed events fixture test/fixtures/events/full-run.events.jsonl instead of the in-file synthetic stream, and recompute the literal expectations (backtracks, repair.accepted, calls.tier1.count and friends) against that fixture; keep the synthetic builder only if a test needs a shape the fixture lacks. (b) Replace the local pattern-regex builder in src/validate/normalise.ts with regexFromPattern/patternMatches from src/grid/pattern.ts; behaviour must be identical, so no test expectation changes except deleting tests that only covered the local builder. (c) In test/unit/policy/budget.test.ts, use getBuiltin('baseline') from src/profiles/builtins.ts instead of ProfileSchema.parse({ name: 'baseline' }).
+- Decisions baked in: pure refactor and test hygiene; no behaviour change; if (a) reveals a discrepancy between the recorder and the fixture, the fixture wins and the recorder bug is reported as a deviation, not silently fixed here.
+- Acceptance: 1. runRecorder tests read the fixture via replay() or direct JSONL parsing and no longer define a synthetic event stream for the main path. 2. `grep -c 'A-Z' src/validate/normalise.ts` shows the local regex construction is gone and pattern.ts is imported. 3. budget tests import getBuiltin. 4. preflight passes with the same or higher test count.
+- Out of scope: any change under src/eval, src/grid, src/profiles; spec edits.
+
 ## Wave 4: end to end, fixtures, benches
 
 Starts once every Wave 3 task is merged.
@@ -1473,8 +1485,9 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T52 | Bench definitions and docs skeleton | 4 | I | haiku | T0,T46 | sets/mixed-30.json, docs/benches/README.md |
 | T53 | votes/blend calibration + fitting (**deferred v1.1**) | 4 | F | opus | T13,T34,T50 | src/score/calibrate.ts, scripts/fit-calibration.ts |
 | T54 | Escalation and batch-size bench runs (**deferred v1.1**) | 4 | I | sonnet | T46,T47,T50,T52,T53 | docs/benches/escalation-policy.md, docs/benches/batch-size.md |
+| T55 | Wave 1 follow-ups | 3 | J | sonnet | T14,T17,T5,T6,T19,T23 | runRecorder.test.ts, validate/normalise.ts, budget.test.ts |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 8, Wave 4 = 5 (2 deferred). Total 55, of which 53 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred). Total 56, of which 54 are in v1 (M1-M5).
 
 Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 42.
 
