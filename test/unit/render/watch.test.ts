@@ -408,3 +408,46 @@ describe('WatchRenderer: never throws on unexpected events', () => {
     ).not.toThrow();
   });
 });
+
+describe('WatchRenderer: finish() (T45)', () => {
+  it('calls the injected done() when the live session was used', () => {
+    const frames: string[] = [];
+    const doneCalls: number[] = [];
+    const renderer = new WatchRenderer({
+      isTty: true,
+      env: {},
+      logUpdate: (frame) => frames.push(frame),
+      done: () => doneCalls.push(1),
+    });
+
+    renderer.handle(loadFixtureEvents()[0] as SolverEvent);
+    expect(doneCalls.length).toBe(0);
+
+    renderer.finish();
+    expect(doneCalls.length).toBe(1);
+
+    // finish() is idempotent-safe to call more than once (not trailed state,
+    // just forwards to the injected done()).
+    renderer.finish();
+    expect(doneCalls.length).toBe(2);
+  });
+
+  it('is a no-op in the B31 fallback branch: it never calls done() there', () => {
+    const stderrSink = makeSink();
+    const stdoutSink = makeSink();
+    const doneCalls: number[] = [];
+    const renderer = new WatchRenderer({
+      isTty: false,
+      env: {},
+      stderr: stderrSink.stream,
+      stdout: stdoutSink.stream,
+      color: false,
+      done: () => doneCalls.push(1),
+    });
+
+    renderer.handle(loadFixtureEvents()[0] as SolverEvent);
+    renderer.finish();
+
+    expect(doneCalls.length).toBe(0);
+  });
+});
