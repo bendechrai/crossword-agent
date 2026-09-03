@@ -375,9 +375,51 @@ export class WatchRenderer {
     return formatDiffLines(this.blocks, letters, this.solution, this.paint);
   }
 
+  /**
+   * Truncates on visible width, not raw byte length: an ANSI SGR escape
+   * (`ESC[<params>m`) contributes 0 columns even though it is several raw
+   * characters, so a coloured cell (e.g. `ESC[1mESC[36mXESC[39mESC[22m`)
+   * must not be cut mid-sequence or counted as if each escape byte were a
+   * printed column.
+   */
   private truncate(line: string): string {
-    if (line.length <= this.columns) return line;
-    if (this.columns <= 3) return line.slice(0, this.columns);
-    return `${line.slice(0, this.columns - 3)}...`;
+    const visible = visibleLength(line);
+    if (visible <= this.columns) return line;
+    const budget = this.columns <= 3 ? this.columns : this.columns - 3;
+    let result = '';
+    let count = 0;
+    let i = 0;
+    while (i < line.length && count < budget) {
+      const match = ANSI_SGR.exec(line.slice(i));
+      if (match) {
+        result += match[0];
+        i += match[0].length;
+        continue;
+      }
+      result += line[i];
+      count += 1;
+      i += 1;
+    }
+    // Drain any escape sequences immediately following the cut point so a
+    // style opened by the last included character (e.g. bold/colour) is
+    // always closed, and the result never ends with a dangling `ESC[`.
+    while (i < line.length) {
+      const match = ANSI_SGR.exec(line.slice(i));
+      if (!match) break;
+      result += match[0];
+      i += match[0].length;
+    }
+    return this.columns <= 3 ? result : `${result}...`;
   }
+}
+
+/** Matches one ANSI SGR escape sequence (`ESC[<params>m`) at the start of a string. */
+const ANSI_SGR = /^\x1b\[[0-9;]*m/;
+
+/** Matches every ANSI SGR escape sequence in a string, for stripping. */
+const ANSI_SGR_GLOBAL = /\x1b\[[0-9;]*m/g;
+
+/** Visible column width of a string: ANSI SGR escapes contribute 0. */
+function visibleLength(text: string): number {
+  return text.replace(ANSI_SGR_GLOBAL, '').length;
 }

@@ -300,6 +300,55 @@ describe('WatchRenderer: NO_COLOR and width (acceptance 7, 8)', () => {
   });
 });
 
+describe('WatchRenderer: truncation measures visible width, not ANSI byte length', () => {
+  // Regression test: a coloured cell is `ESC[1mESC[36mXESC[39mESC[22m` (19
+  // raw bytes for 1 visible column). Truncating on `line.length` cuts a
+  // fully-assigned 5-letter row to 4 cells (or fewer) at the default width
+  // of 80, and can cut mid-escape-sequence, leaving a dangling `ESC[`.
+  const gridInit: SolverEvent = {
+    type: 'grid:init',
+    runId: 'test-run',
+    seq: 0,
+    tMs: 0,
+    width: 5,
+    height: 1,
+    blocks: [[false, false, false, false, false]],
+    numbers: [[1, null, null, null, null]],
+    slots: [{ id: '1A', row: 0, col: 0, length: 5, direction: 'across', clue: 'Test' }],
+  };
+
+  const assign: SearchAssignEvent = {
+    type: 'search:assign',
+    runId: 'test-run',
+    seq: 1,
+    tMs: 10,
+    slotId: '1A',
+    answer: 'ABCDE',
+    score: 0.3, // the "normal" confidence band: no bold/dim wrapping to interfere
+    margin: 0.1,
+    tier: 1,
+    producedBy: 'test/tier1-model',
+  };
+
+  it('a fully-assigned 5-wide coloured row at columns 80 keeps all five letters with no partial escape sequence', () => {
+    const { renderer, frames } = makeWatcher({ color: true, columns: 80 });
+    renderer.handle(gridInit);
+    renderer.handle(assign);
+
+    const last = frames[frames.length - 1] ?? '';
+    const gridLine = last.split('\n')[1] ?? '';
+
+    const visible = gridLine.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(visible).toBe('ABCDE');
+
+    // Every escape byte starts a well-formed ESC[<params>m sequence: none
+    // was cut mid-sequence, so the line never ends with a dangling ESC[.
+    const escapeStarts = gridLine.match(/\x1b\[[^m]*/g) ?? [];
+    expect(escapeStarts.length).toBeGreaterThan(0);
+    for (const start of escapeStarts) expect(gridLine).toContain(`${start}m`);
+  });
+});
+
 describe('WatchRenderer: never throws on unexpected events', () => {
   it('ignores a search:assign for an unknown slot id rather than throwing', () => {
     const { renderer, frames } = makeWatcher({ color: false });
