@@ -1538,6 +1538,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T27 | done | f46b95e | wave 2 |
 | T28 | done | f3a6ffc | wave 2 |
 | T33 | done | fb4214f | wave 2 |
+| T34 | done | 65209f9 | wave 2 |
 
 ## Blocked
 
