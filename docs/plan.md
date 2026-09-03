@@ -1506,6 +1506,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T0 | done | 6ea2059 | Contracts, scaffold and synthetic fixtures. |
 | T1 | done | 6ea2059 | Docker image, compose, xw wrapper and preflight script. |
 | T2 | done | 80111c7 | wave 1 |
+| T3 | done | 2646a61 | wave 1 |
 
 ## Blocked
 
