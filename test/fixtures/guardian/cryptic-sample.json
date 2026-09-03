@@ -27,7 +27,7 @@
         "direction": "down",
         "position": { "x": 2, "y": 0 },
         "length": 7,
-        "clue": "Yellow fruit, informally crazy (3,4)",
+        "clue": "Yellow fruit that's crazy (3,4)",
         "solution": "BANANAS",
         "separatorLocations": { ",": [2] }
       },
@@ -47,7 +47,7 @@
         "direction": "down",
         "position": { "x": 4, "y": 0 },
         "length": 7,
-        "clue": "Marine plant washed up on shore",
+        "clue": "Marine growth washed up on shore",
         "solution": "SEAWEED",
         "separatorLocations": { ",": [3] }
       },
@@ -77,7 +77,7 @@
         "direction": "across",
         "position": { "x": 0, "y": 2 },
         "length": 3,
-        "clue": "Metal can material",
+        "clue": "Metal container substance",
         "solution": "TIN",
         "separatorLocations": {}
       },
@@ -87,7 +87,7 @@
         "direction": "down",
         "position": { "x": 1, "y": 2 },
         "length": 3,
-        "clue": "Frozen water",
+        "clue": "Frozen H2O",
         "solution": "ICE",
         "separatorLocations": {}
       },
@@ -117,7 +117,7 @@
         "direction": "across",
         "position": { "x": 1, "y": 3 },
         "length": 5,
-        "clue": "Synthetic filler word A (test fixture only)",
+        "clue": "Test fixture filler word one",
         "solution": "CATWA",
         "separatorLocations": {}
       },
@@ -147,7 +147,7 @@
         "direction": "across",
         "position": { "x": 4, "y": 4 },
         "length": 3,
-        "clue": "Synthetic filler word B (test fixture only)",
+        "clue": "Test fixture filler word two",
         "solution": "EPS",
         "separatorLocations": {}
       },
@@ -157,7 +157,7 @@
         "direction": "down",
         "position": { "x": 6, "y": 4 },
         "length": 3,
-        "clue": "Large body of salt water",
+        "clue": "Ocean, briefly",
         "solution": "SEA",
         "separatorLocations": {}
       },
@@ -167,7 +167,7 @@
         "direction": "across",
         "position": { "x": 2, "y": 5 },
         "length": 3,
-        "clue": "Consumed in the past",
+        "clue": "Consumed food",
         "solution": "ATE",
         "separatorLocations": {}
       },
@@ -177,7 +177,7 @@
         "direction": "across",
         "position": { "x": 0, "y": 6 },
         "length": 3,
-        "clue": "Synthetic filler word C (test fixture only)",
+        "clue": "Test fixture filler word three",
         "solution": "PAS",
         "separatorLocations": {}
       },
@@ -187,7 +187,7 @@
         "direction": "across",
         "position": { "x": 4, "y": 6 },
         "length": 3,
-        "clue": "Synthetic filler word D (test fixture only)",
+        "clue": "Test fixture filler word four",
         "solution": "DOA",
         "separatorLocations": {}
       }

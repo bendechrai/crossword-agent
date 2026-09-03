@@ -144,7 +144,7 @@ const EXPECTED_SLOTS = [
     row: 0,
     col: 2,
     length: 7,
-    clue: 'Yellow fruit, informally crazy (3,4)',
+    clue: "Yellow fruit that's crazy (3,4)",
     enumeration: '(3,4)',
     cells: [
       [0, 2],
@@ -177,7 +177,7 @@ const EXPECTED_SLOTS = [
     row: 0,
     col: 4,
     length: 7,
-    clue: 'Marine plant washed up on shore',
+    clue: 'Marine growth washed up on shore',
     enumeration: '(3,4)',
     cells: [
       [0, 4],
@@ -224,7 +224,7 @@ const EXPECTED_SLOTS = [
     row: 2,
     col: 0,
     length: 3,
-    clue: 'Metal can material',
+    clue: 'Metal container substance',
     cells: [
       [2, 0],
       [2, 1],
@@ -238,7 +238,7 @@ const EXPECTED_SLOTS = [
     row: 2,
     col: 1,
     length: 3,
-    clue: 'Frozen water',
+    clue: 'Frozen H2O',
     cells: [
       [2, 1],
       [3, 1],
@@ -280,7 +280,7 @@ const EXPECTED_SLOTS = [
     row: 3,
     col: 1,
     length: 5,
-    clue: 'Synthetic filler word A (test fixture only)',
+    clue: 'Test fixture filler word one',
     cells: [
       [3, 1],
       [3, 2],
@@ -324,7 +324,7 @@ const EXPECTED_SLOTS = [
     row: 4,
     col: 4,
     length: 3,
-    clue: 'Synthetic filler word B (test fixture only)',
+    clue: 'Test fixture filler word two',
     cells: [
       [4, 4],
       [4, 5],
@@ -338,7 +338,7 @@ const EXPECTED_SLOTS = [
     row: 4,
     col: 6,
     length: 3,
-    clue: 'Large body of salt water',
+    clue: 'Ocean, briefly',
     cells: [
       [4, 6],
       [5, 6],
@@ -352,7 +352,7 @@ const EXPECTED_SLOTS = [
     row: 5,
     col: 2,
     length: 3,
-    clue: 'Consumed in the past',
+    clue: 'Consumed food',
     cells: [
       [5, 2],
       [5, 3],
@@ -366,7 +366,7 @@ const EXPECTED_SLOTS = [
     row: 6,
     col: 0,
     length: 3,
-    clue: 'Synthetic filler word C (test fixture only)',
+    clue: 'Test fixture filler word three',
     cells: [
       [6, 0],
       [6, 1],
@@ -380,7 +380,7 @@ const EXPECTED_SLOTS = [
     row: 6,
     col: 4,
     length: 3,
-    clue: 'Synthetic filler word D (test fixture only)',
+    clue: 'Test fixture filler word four',
     cells: [
       [6, 4],
       [6, 5],
@@ -409,15 +409,22 @@ describe('guardian adapter (T26)', () => {
     expect(puzzle.parsedBy).toBe('guardian-json');
   });
 
-  it('never lets a clue contain its own solution as a substring (B42, acceptance 3)', () => {
+  it('never lets any clue contain any slot solution as a substring (B42, acceptance 3)', () => {
+    // Mirrors test/contract/schemas.test.ts's 'leaks no answer into any clue
+    // (B42)' check: B42 is a cross-slot post-condition, not a self-check -
+    // every clue must be free of every slot's solution, not just its own.
     const puzzle = parseGuardianPayload(loadFixture(), ctx(), { style: 'cryptic' });
+    const answers = puzzle.slots.map((s) =>
+      s.cells.map(([row, col]) => puzzle.solution[row]?.[col] ?? '').join(''),
+    );
     for (const slot of puzzle.slots) {
-      const normalisedClue = slot.clue.toUpperCase().replace(/[^A-Z]/g, '');
-      const normalisedSolution = slot.cells
-        .map(([row, col]) => puzzle.solution[row]?.[col] ?? '')
-        .join('')
-        .toUpperCase();
-      expect(normalisedClue.includes(normalisedSolution)).toBe(false);
+      const stripped = slot.clue.toUpperCase().replace(/[^A-Z]/g, '');
+      for (const answer of answers) {
+        expect(
+          stripped.includes(answer),
+          `${slot.id} clue "${slot.clue}" leaks ${answer}`,
+        ).toBe(false);
+      }
     }
   });
 
@@ -431,7 +438,7 @@ describe('guardian adapter (T26)', () => {
   it('derives "(3,4)" from separatorLocations on a 7-letter entry with no enumeration in the clue (acceptance 5)', () => {
     const puzzle = parseGuardianPayload(loadFixture(), ctx(), { style: 'cryptic' });
     const slot3D = puzzle.slots.find((s) => s.id === '3D');
-    expect(slot3D?.clue).toBe('Marine plant washed up on shore');
+    expect(slot3D?.clue).toBe('Marine growth washed up on shore');
     expect(slot3D?.enumeration).toBe('(3,4)');
   });
 
