@@ -1,0 +1,29 @@
+{
+  "description": "Three of 1A's crossings each carry one alternative letter (1D has DAB, 2D has ARE, 3D has RED), so 1A has a distance-1 proposal at every offset and a distance-2 proposal at every pair of offsets. Nothing scores, so the pass runs the whole enumeration and the propose order shows every distance-1 proposal ahead of every distance-2 one.",
+  "grid": ["...", "...", "..."],
+  "fill": {
+    "1A": "COT",
+    "1D": "CAB",
+    "2D": "ORE",
+    "3D": "TED",
+    "4A": "ARE",
+    "5A": "BED"
+  },
+  "peek": {
+    "1A": [{ "answer": "COT", "score": 0.6 }],
+    "1D": [
+      { "answer": "CAB", "score": 0.7 },
+      { "answer": "DAB", "score": 0.5 }
+    ],
+    "2D": [
+      { "answer": "ORE", "score": 0.6 },
+      { "answer": "ARE", "score": 0.5 }
+    ],
+    "3D": [
+      { "answer": "TED", "score": 0.7 },
+      { "answer": "RED", "score": 0.5 }
+    ],
+    "4A": [{ "answer": "ARE", "score": 0.7 }],
+    "5A": [{ "answer": "BED", "score": 0.7 }]
+  }
+}

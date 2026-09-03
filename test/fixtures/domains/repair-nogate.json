@@ -1,0 +1,21 @@
+{
+  "description": "The same 3x3 fill, but every ledger holds only the word the grid already carries, so no changed letter has crossing evidence. With a word list that shares no distance-1 neighbour with any of these words, every proposal fails both arms of the B7 gate and the pass makes no service call at all.",
+  "grid": ["...", "...", "..."],
+  "fill": {
+    "1A": "COT",
+    "1D": "CAB",
+    "2D": "ORE",
+    "3D": "TED",
+    "4A": "ARE",
+    "5A": "BED"
+  },
+  "peek": {
+    "1A": [{ "answer": "COT", "score": 0.6 }],
+    "1D": [{ "answer": "CAB", "score": 0.7 }],
+    "2D": [{ "answer": "ORE", "score": 0.6 }],
+    "3D": [{ "answer": "TED", "score": 0.7 }],
+    "4A": [{ "answer": "ARE", "score": 0.7 }],
+    "5A": [{ "answer": "BED", "score": 0.7 }]
+  },
+  "wordlist": { "SKY": 0.9, "GNU": 0.4 }
+}
