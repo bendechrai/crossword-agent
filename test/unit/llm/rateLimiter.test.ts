@@ -27,6 +27,31 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
+type TimerHandle = ReturnType<typeof setTimeout>;
+
+/**
+ * Runs `fn` with `setTimeout` stubbed by a pass-through that records every
+ * handle it hands out, so a test can inspect the ref state of the timers the
+ * limiter armed. Real timers only: the ref/unref API belongs to Node's
+ * `Timeout`, and vitest's fake timers hand back a stand-in.
+ */
+function captureTimerHandles(fn: () => void): TimerHandle[] {
+  const handles: TimerHandle[] = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const recording = (handler: () => void, timeout?: number): TimerHandle => {
+    const handle = realSetTimeout(handler, timeout);
+    handles.push(handle);
+    return handle;
+  };
+  vi.stubGlobal('setTimeout', recording);
+  try {
+    fn();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  return handles;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   resetRegistryForTests();
@@ -242,6 +267,76 @@ describe('the tokens-per-minute bucket', () => {
     // 1000/60000 tokens/ms; 1 token needs 60ms.
     await vi.advanceTimersByTimeAsync(60);
     expect(secondDone).toBe(true);
+  });
+});
+
+describe('timers and process liveness', () => {
+  it('unrefs the AIMD recovery timer, so a post-429 recovery never holds the process open after main() returns', () => {
+    // Nothing calls process.exit (src/cli/exit.ts), so the process ends only
+    // when the event loop drains. The recovery timer re-arms itself every
+    // 10s until rps is back at the ceiling, so a ref'd one would keep the
+    // CLI running for (ceiling - rps) / 0.5 * 10s after the command is done.
+    vi.useRealTimers();
+    mockLimits({ requestsPerMinute: 600, tokensPerMinute: 1_000_000_000, burstRatio: 1 });
+    const limiter = getLimiter('unref-recovery-model', { rpsFraction: 1 });
+
+    const handles = captureTimerHandles(() => {
+      limiter.observe({ status: 429 });
+    });
+
+    expect(handles.length).toBe(1);
+    expect(handles[0]?.hasRef()).toBe(false);
+    resetRegistryForTests();
+  });
+
+  it('keeps the wake timer refd while a caller is queued, since only it will settle that acquire() promise', () => {
+    // The mirror image of the recovery timer: an awaited promise is not
+    // itself a reason for Node to stay alive, so an unref'd wake timer would
+    // let the process exit while queued acquires are still outstanding -
+    // trading a delayed exit for a silently truncated run.
+    vi.useRealTimers();
+    mockLimits({ requestsPerMinute: 60, tokensPerMinute: 1_000_000_000, burstRatio: 1 });
+    const limiter = getLimiter('ref-wake-model', { rpsFraction: 1, maxConcurrency: 10 });
+
+    const handles = captureTimerHandles(() => {
+      // The first grants immediately (full bucket, no timer); the second is
+      // queued behind it and arms the wake timer synchronously.
+      void limiter.acquire(1);
+      void limiter.acquire(1);
+    });
+
+    expect(handles.length).toBe(1);
+    expect(handles[0]?.hasRef()).toBe(true);
+    // Disposes the still-pending real 1s timer along with the registry.
+    resetRegistryForTests();
+  });
+
+  it('clears the wake timer as the queue empties, leaving nothing armed once the work is done', async () => {
+    mockLimits({ requestsPerMinute: 60, tokensPerMinute: 1_000_000_000, burstRatio: 1 });
+    const limiter = getLimiter('wake-cleanup-model', { rpsFraction: 1, maxConcurrency: 10 });
+
+    void limiter.acquire(1);
+    void limiter.acquire(1);
+    await flushMicrotasks();
+    expect(vi.getTimerCount()).toBe(1);
+
+    // 1 rps: the second caller is released 1000ms later, emptying the queue.
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(limiter.snapshot().queued).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('clears a pending recovery timer on dispose (resetRegistryForTests)', () => {
+    mockLimits({ requestsPerMinute: 600, tokensPerMinute: 1_000_000_000, burstRatio: 1 });
+    const limiter = getLimiter('dispose-timer-model', { rpsFraction: 1 });
+
+    limiter.observe({ status: 429 });
+    expect(vi.getTimerCount()).toBe(1);
+
+    resetRegistryForTests();
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

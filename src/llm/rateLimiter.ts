@@ -159,6 +159,23 @@ interface QueueEntry {
   resolve: () => void;
 }
 
+/**
+ * Drops a timer's hold on the event loop while leaving it scheduled: an
+ * unref'd timer still fires as long as something else keeps the process
+ * alive, but stops being a reason on its own not to exit.
+ *
+ * Nothing in this codebase calls `process.exit` (`src/cli/exit.ts`), so the
+ * process ends only when the event loop drains; a timer that re-arms itself
+ * would otherwise keep it running long after the command finished.
+ *
+ * Under Node the handle is a `NodeJS.Timeout` and always has `unref`, but
+ * vitest's fake timers substitute a stand-in, so its presence is checked
+ * rather than assumed.
+ */
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer === 'object' && timer !== null && 'unref' in timer) timer.unref();
+}
+
 class RateLimiterImpl implements RateLimiter {
   private readonly ceilingRps: number;
   private rps: number;
@@ -208,17 +225,31 @@ class RateLimiterImpl implements RateLimiter {
     };
   }
 
-  /** Clears pending timers; called by `resetRegistryForTests`. */
+  /**
+   * Clears pending timers, so a disposed limiter holds nothing on the event
+   * loop. Called by `resetRegistryForTests`, and available to a caller that
+   * abandons queued `acquire()` promises (see `scheduleWake`).
+   */
   dispose(): void {
-    if (this.wakeTimer !== undefined) clearTimeout(this.wakeTimer);
-    if (this.recoveryTimer !== undefined) clearTimeout(this.recoveryTimer);
+    this.clearWake();
+    if (this.recoveryTimer !== undefined) {
+      clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = undefined;
+    }
   }
 
   private drain(): void {
     const now = Date.now();
     for (;;) {
       const head = this.queue[0];
-      if (head === undefined) return;
+      if (head === undefined) {
+        // Invariant: a wake timer exists only while somebody is queued. The
+        // timer's sole job is to release the head, so once the queue is
+        // empty it has nothing to do, and leaving it armed would hold the
+        // event loop open (up to a full TPM window) with no work pending.
+        this.clearWake();
+        return;
+      }
       if (this.inFlight >= this.maxConcurrency) {
         // Concurrency only frees up through `observe()`, which re-drains
         // itself, so no timer is needed here.
@@ -245,8 +276,28 @@ class RateLimiterImpl implements RateLimiter {
     }
   }
 
+  private clearWake(): void {
+    if (this.wakeTimer !== undefined) {
+      clearTimeout(this.wakeTimer);
+      this.wakeTimer = undefined;
+    }
+  }
+
+  /**
+   * Deliberately NOT unref'd, unlike the recovery timer: this timer is the
+   * only thing that will ever settle the queued `acquire()` promises, and an
+   * awaited promise is not itself a reason for Node to keep running. Unref
+   * it and a run whose workers are all waiting on the buckets - with no
+   * socket open at that instant - exits the moment the loop drains, leaving
+   * every queued caller unresolved and the command silently truncated.
+   *
+   * It cannot outlive the work either: `drain` clears it as soon as the
+   * queue empties, so a pending wake timer always means a pending
+   * `acquire()`. A caller that abandons queued acquires (an aborted solve)
+   * must `dispose()` the limiter rather than rely on the timer expiring.
+   */
   private scheduleWake(waitMs: number): void {
-    if (this.wakeTimer !== undefined) clearTimeout(this.wakeTimer);
+    this.clearWake();
     const delay = Math.max(1, Math.ceil(waitMs));
     this.wakeTimer = setTimeout(() => {
       this.wakeTimer = undefined;
@@ -277,7 +328,13 @@ class RateLimiterImpl implements RateLimiter {
       this.recoveryTimer = undefined;
     }
     if (this.rps >= this.ceilingRps) return;
-    this.recoveryTimer = setTimeout(() => {
+    // Unref'd: recovery is pure background maintenance of `rps` - nobody
+    // awaits it, and it re-arms itself every 10s until the ceiling is back,
+    // so after a single 429 a ref'd timer would keep the process alive for
+    // (ceilingRps - rps) / 0.5 * 10s past the end of the command (160s to
+    // climb from 1 rps to 9 on a 600 RPM model). It still fires normally
+    // while anything else keeps the loop alive.
+    const timer = setTimeout(() => {
       this.recoveryTimer = undefined;
       const now = Date.now();
       this.rps = Math.min(this.ceilingRps, this.rps + RECOVERY_STEP_RPS);
@@ -291,6 +348,8 @@ class RateLimiterImpl implements RateLimiter {
       this.drain();
       this.scheduleRecovery();
     }, RECOVERY_INTERVAL_MS);
+    unrefTimer(timer);
+    this.recoveryTimer = timer;
   }
 }
 
