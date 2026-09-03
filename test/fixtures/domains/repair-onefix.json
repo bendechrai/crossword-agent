@@ -1,0 +1,24 @@
+{
+  "description": "A complete 3x3 fill with one wrong letter: 1A holds COT where the crossing evidence says CAT, so r0c1 must change from O to A and 2D changes with it (ORE -> ARE). Only 2D's ledger carries an alternative letter, so exactly one distance-1 proposal passes the B7 gate.",
+  "grid": ["...", "...", "..."],
+  "fill": {
+    "1A": "COT",
+    "1D": "CAB",
+    "2D": "ORE",
+    "3D": "TED",
+    "4A": "ARE",
+    "5A": "BED"
+  },
+  "peek": {
+    "1A": [{ "answer": "COT", "score": 0.6 }],
+    "1D": [{ "answer": "CAB", "score": 0.7 }],
+    "2D": [
+      { "answer": "ORE", "score": 0.6 },
+      { "answer": "ARE", "score": 0.9 }
+    ],
+    "3D": [{ "answer": "TED", "score": 0.7 }],
+    "4A": [{ "answer": "ARE", "score": 0.7 }],
+    "5A": [{ "answer": "BED", "score": 0.7 }]
+  },
+  "solution": ["CAT", "ARE", "BED"]
+}

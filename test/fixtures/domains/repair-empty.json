@@ -1,0 +1,17 @@
+{
+  "description": "A 3x3 where the search left 1A and 1D unassigned. 1A's pattern is ?OT and, once the word list fills it with COT, 1D's pattern is CAB. No ledger carries an alternative letter and no word-list neighbour of the assigned words is in the list, so the edit loop spends nothing and the whole result is the empty-slot fallback.",
+  "grid": ["...", "...", "..."],
+  "fill": {
+    "2D": "ORE",
+    "3D": "TED",
+    "4A": "ARE",
+    "5A": "BED"
+  },
+  "peek": {
+    "2D": [{ "answer": "ORE", "score": 0.6 }],
+    "3D": [{ "answer": "TED", "score": 0.7 }],
+    "4A": [{ "answer": "ARE", "score": 0.7 }],
+    "5A": [{ "answer": "BED", "score": 0.7 }]
+  },
+  "wordlist": { "COT": 0.8, "HOT": 0.5, "CAB": 0.7 }
+}

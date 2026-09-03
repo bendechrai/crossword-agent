@@ -1,0 +1,21 @@
+{
+  "description": "A 4x3 grid whose top row sits above a full row of blocks, so 1A has zero crossings (B7). Its ledger cannot justify any changed letter, so the word-list arm is the only one available: CAT -> COT passes only because COT is in the list.",
+  "grid": ["...", "###", "...", "..."],
+  "fill": {
+    "1A": "CAT",
+    "2A": "ARE",
+    "5A": "BED",
+    "2D": "AB",
+    "3D": "RE",
+    "4D": "ED"
+  },
+  "peek": {
+    "1A": [{ "answer": "CAT", "score": 0.5 }],
+    "2A": [{ "answer": "ARE", "score": 0.7 }],
+    "5A": [{ "answer": "BED", "score": 0.7 }],
+    "2D": [{ "answer": "AB", "score": 0.6 }],
+    "3D": [{ "answer": "RE", "score": 0.6 }],
+    "4D": [{ "answer": "ED", "score": 0.6 }]
+  },
+  "wordlist": { "CAT": 0.5, "COT": 0.9 }
+}
