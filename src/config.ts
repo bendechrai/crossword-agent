@@ -5,6 +5,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 
 import { usageError } from './cli/exit.js';
+import { builtinNames } from './profiles/builtins.js';
 
 /**
  * B27. No secrets live here - the API key comes from the environment only -
@@ -128,6 +129,19 @@ export async function loadConfig(opts: LoadConfigOptions = {}): Promise<LoadedCo
   const parsed = ConfigSchema.safeParse(raw);
   if (!parsed.success) {
     throw usageError(`invalid config file ${absPath}: ${parsed.error.issues[0]?.message ?? 'validation failed'}`);
+  }
+
+  const { defaultProfile } = parsed.data;
+  if (defaultProfile !== undefined) {
+    const isKnownBuiltin = builtinNames().includes(defaultProfile);
+    const profilePath = isAbsolute(defaultProfile) ? defaultProfile : resolve(cwd, defaultProfile);
+    const isExistingFile = existsSync(profilePath);
+    if (!isKnownBuiltin && !isExistingFile) {
+      throw usageError(
+        `config file ${absPath} names unknown defaultProfile "${defaultProfile}"`,
+        `known built-ins: ${builtinNames().join(', ')}`,
+      );
+    }
   }
 
   return { config: parsed.data, path: absPath };

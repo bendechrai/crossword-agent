@@ -77,6 +77,14 @@ describe('resolveProfile - built-in and file resolution', () => {
     expect(error.message).toContain('toaster');
   });
 
+  it('a typo inside a nested group of a profile file is a usage error naming "group.key"', async () => {
+    const error = await expectCliError(
+      () => resolveProfile({ profile: fixture('nested-unknown-key.json') }),
+      ExitCode.USAGE,
+    );
+    expect(error.message).toContain('search.maxBactracks');
+  });
+
   it('a profile spec that is neither a built-in nor an existing file is a usage error', async () => {
     await expectCliError(() => resolveProfile({ profile: 'no-such-profile-or-file' }), ExitCode.USAGE);
   });
@@ -135,6 +143,20 @@ describe('resolveProfile - CLI overrides merge nested groups one level deep', ()
     expect(profile.sampling.maxTokens).toBe(999);
     expect(profile.sampling.temperature).toBe(patient.sampling.temperature);
   });
+
+  it('an explicit undefined inside a nested-group override never discards a value the base already set', async () => {
+    // The natural shape T45 produces when mapping absent commander flags
+    // into overrides: the key is present but its value is `undefined`. The
+    // profile file sets sampling.maxTokens 1024; the override only means to
+    // touch temperature, but spreading an `undefined` maxTokens verbatim
+    // would clobber it back to the zod default (512).
+    const { profile } = await resolveProfile({
+      profile: fixture('sampling-max-tokens.json'),
+      overrides: { sampling: { temperature: 0.5, maxTokens: undefined } },
+    });
+    expect(profile.sampling.temperature).toBe(0.5);
+    expect(profile.sampling.maxTokens).toBe(1024);
+  });
 });
 
 describe('loadConfig - four-source precedence and absence (Acceptance 6)', () => {
@@ -155,26 +177,26 @@ describe('loadConfig - four-source precedence and absence (Acceptance 6)', () =>
 
   it('falls back to ./crossword.config.json when nothing more specific is given', async () => {
     const defaultPath = join(dir, 'crossword.config.json');
-    await writeFile(defaultPath, JSON.stringify({ defaultProfile: 'from-default-file' }));
+    await writeFile(defaultPath, JSON.stringify({ defaultProfile: 'patient' }));
     const result = await loadConfig({ cwd: dir, env: {} });
-    expect(result).toEqual({ config: { defaultProfile: 'from-default-file' }, path: defaultPath });
+    expect(result).toEqual({ config: { defaultProfile: 'patient' }, path: defaultPath });
   });
 
   it('$CROSSWORD_CONFIG outranks the default filename', async () => {
-    await writeFile(join(dir, 'crossword.config.json'), JSON.stringify({ defaultProfile: 'from-default-file' }));
+    await writeFile(join(dir, 'crossword.config.json'), JSON.stringify({ defaultProfile: 'patient' }));
     const envPath = join(dir, 'env-config.json');
-    await writeFile(envPath, JSON.stringify({ defaultProfile: 'from-env' }));
+    await writeFile(envPath, JSON.stringify({ defaultProfile: 'no-repair' }));
     const result = await loadConfig({ cwd: dir, env: { CROSSWORD_CONFIG: envPath } });
-    expect(result).toEqual({ config: { defaultProfile: 'from-env' }, path: envPath });
+    expect(result).toEqual({ config: { defaultProfile: 'no-repair' }, path: envPath });
   });
 
   it('--config outranks $CROSSWORD_CONFIG', async () => {
     const envPath = join(dir, 'env-config.json');
-    await writeFile(envPath, JSON.stringify({ defaultProfile: 'from-env' }));
+    await writeFile(envPath, JSON.stringify({ defaultProfile: 'no-repair' }));
     const flagPath = join(dir, 'flag-config.json');
-    await writeFile(flagPath, JSON.stringify({ defaultProfile: 'from-flag' }));
+    await writeFile(flagPath, JSON.stringify({ defaultProfile: 'tier1-only' }));
     const result = await loadConfig({ cwd: dir, env: { CROSSWORD_CONFIG: envPath }, path: flagPath });
-    expect(result).toEqual({ config: { defaultProfile: 'from-flag' }, path: flagPath });
+    expect(result).toEqual({ config: { defaultProfile: 'tier1-only' }, path: flagPath });
   });
 
   it('an explicitly named config file that does not exist is a usage error', async () => {
@@ -189,6 +211,30 @@ describe('loadConfig - four-source precedence and absence (Acceptance 6)', () =>
     await writeFile(path, JSON.stringify({ cachDir: 'typo' }));
     const error = await expectCliError(() => loadConfig({ cwd: dir, env: {} }), ExitCode.USAGE);
     expect(error.message).toContain('cachDir');
+  });
+
+  it('a defaultProfile naming a built-in loads without error', async () => {
+    const path = join(dir, 'crossword.config.json');
+    await writeFile(path, JSON.stringify({ defaultProfile: 'strong-only' }));
+    const result = await loadConfig({ cwd: dir, env: {} });
+    expect(result.config.defaultProfile).toBe('strong-only');
+  });
+
+  it('a defaultProfile naming an existing profile file (resolved against cwd) loads without error', async () => {
+    const profilePath = join(dir, 'my-profile.json');
+    await writeFile(profilePath, JSON.stringify({ name: 'my-profile' }));
+    const path = join(dir, 'crossword.config.json');
+    await writeFile(path, JSON.stringify({ defaultProfile: 'my-profile.json' }));
+    const result = await loadConfig({ cwd: dir, env: {} });
+    expect(result.config.defaultProfile).toBe('my-profile.json');
+  });
+
+  it('a defaultProfile naming neither a built-in nor an existing file is a load-time usage error (T23 decision)', async () => {
+    const path = join(dir, 'crossword.config.json');
+    await writeFile(path, JSON.stringify({ defaultProfile: 'no-such-profile' }));
+    const error = await expectCliError(() => loadConfig({ cwd: dir, env: {} }), ExitCode.USAGE);
+    expect(error.message).toContain('no-such-profile');
+    expect(error.message).toContain(path);
   });
 });
 

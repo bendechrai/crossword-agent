@@ -71,17 +71,25 @@ describe('builtins', () => {
     expect(firstBaseline).toBeDefined();
     if (firstBaseline === undefined) return;
     firstBaseline.tier1 = 'mutated';
+    // A nested group is not a shallow-copied reference either: mutating it
+    // must never reach the shared module-level literal.
+    firstBaseline.sampling.temperature = 1.9;
 
     const second = getBuiltins();
     const secondBaseline = second['baseline'];
     expect(secondBaseline?.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(secondBaseline?.sampling.temperature).toBe(0.2);
+    expect(baseline.sampling.temperature).toBe(0.2);
   });
 
   it('getBuiltin() returns a fresh copy of one named profile', () => {
     const a = getBuiltin('baseline');
     a.tier1 = 'mutated';
+    a.sampling.temperature = 1.9;
     const b = getBuiltin('baseline');
     expect(b.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(b.sampling.temperature).toBe(0.2);
+    expect(baseline.sampling.temperature).toBe(0.2);
   });
 
   it('getBuiltin() throws a usage CliError naming the unknown profile', () => {

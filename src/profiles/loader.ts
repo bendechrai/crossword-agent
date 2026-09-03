@@ -38,6 +38,23 @@ const NESTED_GROUP_KEYS: readonly string[] = [
 ];
 
 /**
+ * Every key each nested option group accepts (mirroring the frozen
+ * `src/profiles/schema.ts`), hand-listed for the same reason as
+ * `PROFILE_FILE_KEYS` below: these groups are not `.strict()` zod objects
+ * (they use `.prefault({})`), so an unrecognised key inside one (a typo such
+ * as `search.maxBactracks`) would otherwise be silently dropped by zod
+ * instead of surfacing as the usage error the T23 decision requires.
+ */
+const NESTED_GROUP_ALLOWED_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
+  sampling: new Set(['temperature', 'topP', 'maxTokens']),
+  escalation: new Set(['policy', 'clueUnderstoodThreshold', 'maxTier2CallsPerPuzzle', 'escalationsPerSlot']),
+  search: new Set(['ordering', 'ldsLimitStart', 'ldsLimitMax', 'maxBacktracks']),
+  repair: new Set(['enabled', 'maxCalls', 'maxEditDistance']),
+  budget: new Set(['usd', 'tokens', 'wallMs']),
+  rateLimit: new Set(['rpsFraction', 'maxConcurrencyTier1', 'maxConcurrencyTier2']),
+};
+
+/**
  * Every key `ProfileObject` (src/profiles/schema.ts) accepts, plus `extends`,
  * which is a profile-*file*-only instruction consumed here and never passed
  * through to the schema. Kept as an explicit list for the same reason as
@@ -67,6 +84,25 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Finds the first unrecognised key inside any nested option group of `raw`
+ * (e.g. a typo `search.maxBactracks`), returning it as `"<group>.<key>"`, or
+ * `undefined` when every nested group's keys are all recognised. Only
+ * inspects groups whose value is a plain object; a group with a non-object
+ * value is left for `ProfileSchema` to reject on its own terms.
+ */
+function firstNestedUnknownKey(raw: Record<string, unknown>): string | undefined {
+  for (const group of NESTED_GROUP_KEYS) {
+    const value = raw[group];
+    if (!isPlainObject(value)) continue;
+    const allowed = NESTED_GROUP_ALLOWED_KEYS[group];
+    if (allowed === undefined) continue;
+    const badKey = Object.keys(value).find((key) => !allowed.has(key));
+    if (badKey !== undefined) return `${group}.${badKey}`;
+  }
+  return undefined;
+}
+
+/**
  * Overlays `patch` onto `base`. Nested option groups are merged one level
  * deep, so setting a single field of `search` (say) never resets the group's
  * other fields back to the zod defaults - it keeps whatever `base` already
@@ -80,7 +116,15 @@ function overlayProfile(
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
     if (NESTED_GROUP_KEYS.includes(key) && isPlainObject(value) && isPlainObject(out[key])) {
-      out[key] = { ...out[key], ...value };
+      // A field inside a nested-group patch set to `undefined` (e.g. an
+      // absent CLI flag mapped straight into `overrides.sampling`) must not
+      // clobber the base's value for that field - only keys the patch
+      // actually defines should override, so `undefined` entries are
+      // dropped from `value` before it is spread over the base group.
+      const definedEntries = Object.fromEntries(
+        Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+      );
+      out[key] = { ...out[key], ...definedEntries };
     } else {
       out[key] = value;
     }
@@ -132,6 +176,14 @@ async function resolveProfileSpec(spec: string): Promise<ProfileSpecResolution> 
     throw usageError(
       `unknown key "${unknownKey}" in profile file ${absPath}`,
       `allowed keys: ${[...PROFILE_FILE_KEYS].sort().join(', ')}`,
+    );
+  }
+
+  const nestedUnknownKey = firstNestedUnknownKey(raw);
+  if (nestedUnknownKey !== undefined) {
+    throw usageError(
+      `unknown key "${nestedUnknownKey}" in profile file ${absPath}`,
+      'a typo inside a profile group is a usage error, not a silently ignored field',
     );
   }
 

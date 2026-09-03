@@ -306,11 +306,17 @@ const BUILTINS: Readonly<Record<string, Profile>> = {
   batch8,
 };
 
-/** A fresh copy each call, so a caller mutating the result never corrupts the shared literal. */
+/**
+ * A deep copy each call, so a caller mutating the result - including a
+ * nested group such as `.sampling` or `.budget` - never corrupts the shared
+ * module-level literal. A shallow `{ ...profile }` is not enough: the six
+ * nested groups (`sampling`, `escalation`, `search`, `repair`, `budget`,
+ * `rateLimit`) would still be shared references.
+ */
 export function getBuiltins(): Record<string, Profile> {
   const out: Record<string, Profile> = {};
   for (const [name, profile] of Object.entries(BUILTINS)) {
-    out[name] = { ...profile };
+    out[name] = structuredClone(profile);
   }
   return out;
 }
@@ -323,7 +329,7 @@ export function getBuiltin(name: string): Profile {
       `known built-ins: ${builtinNames().join(', ')}`,
     );
   }
-  return { ...profile };
+  return structuredClone(profile);
 }
 
 export function builtinNames(): string[] {
