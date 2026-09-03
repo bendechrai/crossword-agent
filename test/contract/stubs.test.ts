@@ -181,3 +181,14 @@ describe.each(STUB_MODULES)('%s', (modulePath, load) => {
     await checkModule(modulePath, load);
   });
 });
+
+// describe.each registers zero suites when STUB_MODULES is empty, and
+// vitest 4 fails a file outright with "No test suite found" if it ends up
+// with no tests at all. Once every src module has been implemented and the
+// scan above comes back empty, register this single passing test instead so
+// the file always contains at least one test.
+if (STUB_MODULES.length === 0) {
+  it('no stub modules remain (every src module is implemented)', () => {
+    expect(STUB_MODULES).toEqual([]);
+  });
+}
