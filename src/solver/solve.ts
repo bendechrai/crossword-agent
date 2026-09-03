@@ -101,6 +101,11 @@ interface RunEndWithError extends EmittedOf<'run:end'> {
  *  - **One emit.** Pass the bus's `emit` to the service, the hooks and to
  *    `deps.emit`, so the service's `slot:ask` / `llm:usage` events and this
  *    module's phase events land on the same ordered stream.
+ *  - **One budget.** `hooks.chargeBudget` is the only handle this module has
+ *    on the run's `BudgetTracker`, so the hooks must be built over the same
+ *    tracker the rest of the run charges. Build a second one and the seed
+ *    pass's spend will not count towards the search's caps, and `run:end`
+ *    will report `ok` for a run that blew its budget.
  *  - **`costs`.** This module prices only the calls it makes itself (the seed
  *    pass). A run's full per-tier cost lives on the `llm:usage` events the
  *    service emits directly to the bus, which never pass through here, so pass
@@ -218,11 +223,26 @@ export async function solve(
 
   const cost = newTierCost();
   /**
-   * True once any cap has been reported, whoever reported it: a `budget:hit`
-   * seen on the stream this module emits on (the search's caps arrive that
-   * way, since T38's hooks emit the event and T37 only ends its phase), a cap
-   * returned by a charge made here, or a phase-scoped counter a phase ran out
-   * of. It is what makes `run:end` report `partial` rather than `ok`.
+   * True once any cap has been reported, whoever reported it. It is what makes
+   * `run:end` report `partial` rather than `ok`, and there are three routes to
+   * it, because this module holds no budget tracker of its own:
+   *
+   *  - A cap returned by a charge made here (the seed pass, and the
+   *    `chargeBudget` handed to the repair pass).
+   *  - The wall-clock observation at every phase transition. This is the one
+   *    that catches a cap crossed *inside* another module: T38's hooks emit
+   *    `budget:hit` on the bus directly rather than through the `emit` this
+   *    module wraps, so the event itself is not visible here, but T19's
+   *    tracker re-evaluates every run-global cap on any evaluation, so the
+   *    next transition's observation returns the crossed cap.
+   *  - A `budget:hit` that does arrive through this module's `emit`, which is
+   *    the case for anything given the `emit` passed to `deps.ac3`,
+   *    `deps.search` or `deps.repair`.
+   *
+   * Phase-scoped counters (`backtracks`, `repairCalls`) are never surfaced by
+   * an observation - T19 checks them only when they are the cap charged - so
+   * an exhausted `backtracks` allowance is noticed from the search's own
+   * result instead.
    */
   let budgetHit = false;
   /** Set when a run-global *spend* cap is crossed: this module stops calling. */
