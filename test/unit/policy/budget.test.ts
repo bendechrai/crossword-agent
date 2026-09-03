@@ -120,7 +120,29 @@ describe('BudgetTracker.charge', () => {
   it('reports usd ahead of backtracks when both are already exceeded (declared order, general case)', () => {
     const tracker = createBudgetTracker(permissiveBudget({ usd: 1, backtracks: 1 }));
     tracker.charge('usd', 2); // exceeds usd only; reports usd
+    // usd is a run-global cap, so it is checked on every charge regardless
+    // of which cap is being charged, and it precedes backtracks in the
+    // declared order.
     expect(tracker.charge('backtracks', 2).exceeded).toBe('usd');
+  });
+
+  it('does not let an already-exceeded phase-scoped cap block a later phase (docs/spec.md "Budget-cap behaviour")', () => {
+    const tracker = createBudgetTracker(permissiveBudget({ backtracks: 200, repairCalls: 30 }));
+
+    // Search phase exhausts backtracks and ends its phase.
+    tracker.charge('backtracks', 200); // at the cap, not exceeded
+    expect(tracker.charge('backtracks', 1).exceeded).toBe('backtracks'); // 201 > 200
+
+    // The pipeline proceeds to the repair phase, which must not see the
+    // exhausted, phase-scoped backtracks cap on its own charges.
+    expect(tracker.charge('repairCalls', 1).exceeded).toBeNull();
+  });
+
+  it('still surfaces a run-global cap while charging an unrelated phase-scoped cap', () => {
+    const tracker = createBudgetTracker(permissiveBudget({ tokens: 10, repairCalls: 30 }));
+    tracker.charge('tokens', 20); // exceeds the run-global tokens cap
+
+    expect(tracker.charge('repairCalls', 1).exceeded).toBe('tokens');
   });
 });
 
@@ -189,15 +211,34 @@ describe('BudgetTracker.budget', () => {
 });
 
 describe('BudgetTracker.hits', () => {
-  it('accumulates one entry per exceeded evaluation, naming the cap, its limit and the actual at that point', () => {
+  it('records only the first crossing of a cap, not every post-cap charge', () => {
     const tracker = createBudgetTracker(permissiveBudget({ repairCalls: 1 }));
     tracker.charge('repairCalls', 1); // at the cap, not exceeded
-    tracker.charge('repairCalls', 1); // exceeds: actual 2 > limit 1
-    tracker.charge('repairCalls', 1); // still exceeds: actual 3 > limit 1
+    // Crosses it: this is the only evaluation that should append a hit.
+    expect(tracker.charge('repairCalls', 1).exceeded).toBe('repairCalls'); // actual 2 > limit 1
+    // Still exceeds, and charge() still reports the cap, but no further
+    // entry is appended - otherwise the run record's budgetHits and the
+    // report's "budget-hit counts by cap" would grow without bound.
+    expect(tracker.charge('repairCalls', 1).exceeded).toBe('repairCalls'); // actual 3 > limit 1
+
+    const hits = tracker.hits();
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ cap: 'repairCalls', limit: 1, actual: 2 });
+  });
+
+  it('records one entry per distinct cap that crosses, in the order each first crosses', () => {
+    const tracker = createBudgetTracker(permissiveBudget({ usd: 1, tokens: 1 }));
+    // tokens crosses first; usd has not been charged yet so is not exceeded.
+    expect(tracker.charge('tokens', 2).exceeded).toBe('tokens');
+    // usd crosses second.
+    expect(tracker.charge('usd', 2).exceeded).toBe('usd');
+    // Both remain exceeded; usd precedes tokens in the declared order, so a
+    // further tokens charge is reported as usd - but neither is a new hit.
+    expect(tracker.charge('tokens', 1).exceeded).toBe('usd');
 
     const hits = tracker.hits();
     expect(hits).toHaveLength(2);
-    expect(hits[0]).toMatchObject({ cap: 'repairCalls', limit: 1, actual: 2 });
-    expect(hits[1]).toMatchObject({ cap: 'repairCalls', limit: 1, actual: 3 });
+    expect(hits[0]).toMatchObject({ cap: 'tokens', limit: 1, actual: 2 });
+    expect(hits[1]).toMatchObject({ cap: 'usd', limit: 1, actual: 2 });
   });
 });
