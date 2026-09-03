@@ -44,6 +44,8 @@ This returned HTTP 200, and the subagent validated and pretty-printed the result
 
 11. **Surveyed crossword puzzle sources.** I had a subagent with web access research where to get crossword puzzles in machine-readable formats, fetching every URL it cited so nothing in the doc is guessed. docs/crossword-sources.md covers the four common file formats (.puz, .ipuz, .jpz, .xd), the npm parsers for them, and thirteen puzzle and clue sources with their variety, volume, and licensing caveats. The top three by variety came out as Saul Pwanson's xd corpus for American puzzles, the Guardian's unofficial JSON endpoint for British cryptics, and the xword-dl scraper as a meta-source across publishers. The plan is to use the licence-clean public data (the pre-1965 xd slice and open clue datasets) for bulk benchmarking and the Guardian cryptics for spot-testing.
 
+12. **Researched crossword solving algorithms.** While the sources research was running I kicked off a second research piece on solving algorithms, this time on a stronger model because it had to synthesise the literature with my own sketch of the flow. docs/crossword-algorithms.md covers Proverb, Dr.Fill, the Berkeley Crossword Solver, WebCrow and the recent LLM-era work, with the numbers read from the papers themselves rather than search snippets. The recommended design keeps the LLM strictly as a candidate oracle: deterministic code models the grid as a constraint satisfaction problem, prunes candidate lists with arc consistency, searches with backtracking ordered by confidence margin, and finishes with a bounded local-repair pass. The critique of my sketch changed three things: self-reported confidence is a routing signal, not a probability; on a dead end, re-ask the cheap model with the letter pattern before escalating or backtracking; and when backtracking, undo the least confident crossing rather than the most recent one. It also flagged that my sketch had no repair pass, which the Berkeley ablation suggests is worth roughly half the perfect-puzzle rate. A few word-list licences could not be verified and are marked as such in the doc.
+
 ## Current state
 
 Main is pushed to the public remote at https://github.com/bendechrai/crossword-agent. The repo contains:
@@ -53,4 +55,5 @@ Main is pushed to the public remote at https://github.com/bendechrai/crossword-a
 - `models.json` - the fetched Nebius Token Factory model catalogue
 - `docs/model-selection.md` - model shortlist and reasoning for the Nebius catalogue
 - `docs/crossword-sources.md` - sources of machine-readable crossword puzzles, file formats, and npm parsers; top three by variety
+- `docs/crossword-algorithms.md` - survey of prior art in automated crossword solving and the recommended algorithm for the Node.js solver
 - `DIARY.md` - this file
