@@ -1,0 +1,44 @@
+{"type":"run:start","runId":"fixture-full-run","seq":0,"tMs":0,"puzzleId":"synthetic-5x5","profileName":"balanced","models":{"tier1":"test/tier1-model","tier2":"test/tier2-model"},"seed":42}
+{"type":"grid:init","runId":"fixture-full-run","seq":1,"tMs":5,"width":5,"height":5,"blocks":[[false,false,true,false,false],[false,false,false,false,false],[false,false,false,false,false],[false,false,false,false,false],[true,false,true,false,false]],"numbers":[[1,2,null,3,4],[5,null,6,null,null],[7,null,null,null,null],[8,null,null,null,null],[null,null,null,9,null]],"slots":[{"id":"1A","row":0,"col":0,"length":2,"direction":"across","clue":"Cry of surprise"},{"id":"1D","row":0,"col":0,"length":4,"direction":"down","clue":"Spoken rather than written"},{"id":"2D","row":0,"col":1,"length":5,"direction":"down","clue":"Chaos and destruction"},{"id":"3A","row":0,"col":3,"length":2,"direction":"across","clue":"Greek letter of a famous ratio"},{"id":"3D","row":0,"col":3,"length":5,"direction":"down","clue":"Calm self-assurance"},{"id":"4D","row":0,"col":4,"length":5,"direction":"down","clue":"Alphabetical list at the back of a book"},{"id":"5A","row":1,"col":0,"length":5,"direction":"across","clue":"Synthetic silk-like fabric"},{"id":"6D","row":1,"col":2,"length":3,"direction":"down","clue":"The person being addressed"},{"id":"7A","row":2,"col":0,"length":5,"direction":"across","clue":"Steer clear of"},{"id":"8A","row":3,"col":0,"length":5,"direction":"across","clue":"Small parasitic insect"},{"id":"9A","row":4,"col":3,"length":2,"direction":"across","clue":"Former partner"}]}
+{"type":"phase:start","runId":"fixture-full-run","seq":2,"tMs":10,"phase":"seed"}
+{"type":"slot:ask","runId":"fixture-full-run","seq":3,"tMs":50,"slotId":"1A","clue":"Cry of surprise","length":2,"pattern":"??","tier":1,"purpose":"seed","promptKind":"seed","batchIndex":0}
+{"type":"pattern:built","runId":"fixture-full-run","seq":4,"tMs":52,"slotId":"1A","pattern":"??","regex":"^[A-Z]{2}$"}
+{"type":"llm:request","runId":"fixture-full-run","seq":5,"tMs":55,"model":"test/tier1-model","slotId":"1A","prompt":"Clue: Cry of surprise (2 letters, pattern ??)"}
+{"type":"cache:lookup","runId":"fixture-full-run","seq":6,"tMs":56,"key":"sha1:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b","hit":false,"slotId":"1A"}
+{"type":"llm:response","runId":"fixture-full-run","seq":7,"tMs":180,"model":"test/tier1-model","slotId":"1A","raw":"{\"clue_understood\":0.95,\"candidates\":[{\"answer\":\"OH\",\"confidence\":0.92},{\"answer\":\"AHOY\",\"confidence\":0.1}]}"}
+{"type":"llm:usage","runId":"fixture-full-run","seq":8,"tMs":181,"model":"test/tier1-model","usage":{"promptTokens":120,"completionTokens":40,"totalTokens":160},"usdBilled":0.0026,"usdCounterfactual":0.0026,"latencyMs":124}
+{"type":"slot:candidates","runId":"fixture-full-run","seq":9,"tMs":185,"slotId":"1A","accepted":[{"answer":"OH","score":0.92}],"clueUnderstood":0.95,"cacheHit":false}
+{"type":"candidate:reject","runId":"fixture-full-run","seq":10,"tMs":186,"slotId":"1A","answer":"AHOY","reason":"length"}
+{"type":"domain:filtered","runId":"fixture-full-run","seq":11,"tMs":187,"slotId":"1A","surviving":[{"answer":"OH","score":0.92}]}
+{"type":"rate:limited","runId":"fixture-full-run","seq":12,"tMs":400,"model":"test/tier1-model","status":429,"retryAfterMs":500,"attempt":1}
+{"type":"rate:adjusted","runId":"fixture-full-run","seq":13,"tMs":410,"model":"test/tier1-model","rps":5,"reason":"backoff after 429"}
+{"type":"phase:end","runId":"fixture-full-run","seq":14,"tMs":1200,"phase":"seed","durationMs":1200}
+{"type":"phase:start","runId":"fixture-full-run","seq":15,"tMs":1210,"phase":"prepass"}
+{"type":"ac3:arc","runId":"fixture-full-run","seq":16,"tMs":1215,"slotId":"1A","otherSlotId":"1D"}
+{"type":"ac3:reduce","runId":"fixture-full-run","seq":17,"tMs":1220,"slotId":"1A","otherSlotId":"1D","removed":["XX"]}
+{"type":"ac3:wipeout","runId":"fixture-full-run","seq":18,"tMs":1225,"slotId":"6D"}
+{"type":"phase:end","runId":"fixture-full-run","seq":19,"tMs":1500,"phase":"prepass","durationMs":290}
+{"type":"phase:start","runId":"fixture-full-run","seq":20,"tMs":1510,"phase":"search"}
+{"type":"search:assign","runId":"fixture-full-run","seq":21,"tMs":1520,"slotId":"1A","answer":"OH","score":0.92,"margin":0.4,"tier":1,"producedBy":"test/tier1-model"}
+{"type":"search:forwardcheck","runId":"fixture-full-run","seq":22,"tMs":1525,"slotId":"1A","crossingSlotId":"1D","before":5,"after":3}
+{"type":"progress","runId":"fixture-full-run","seq":23,"tMs":1600,"phase":"search","assigned":3,"total":11,"elapsedMs":1600,"usd":0.01}
+{"type":"slot:reask","runId":"fixture-full-run","seq":24,"tMs":1700,"slotId":"6D","pattern":"Y??","attempt":2}
+{"type":"slot:escalate","runId":"fixture-full-run","seq":25,"tMs":1750,"slotId":"6D","trigger":2,"reason":"low confidence across two reasks","tier2CallsUsed":1}
+{"type":"search:backtrack","runId":"fixture-full-run","seq":26,"tMs":1800,"slotId":"5A","margin":0.1,"reason":"lowest margin among crossings of wiped slot"}
+{"type":"search:unassign","runId":"fixture-full-run","seq":27,"tMs":1805,"slotId":"5A","answer":"RAYON"}
+{"type":"search:wipeout","runId":"fixture-full-run","seq":28,"tMs":1810,"slotId":"6D"}
+{"type":"lds:restart","runId":"fixture-full-run","seq":29,"tMs":1820,"ldsLimit":1,"discrepanciesUsed":0}
+{"type":"phase:timing","runId":"fixture-full-run","seq":30,"tMs":1825,"phase":"search","label":"forwardcheck","ms":12}
+{"type":"budget:hit","runId":"fixture-full-run","seq":31,"tMs":1900,"cap":"backtracks","limit":50,"actual":50}
+{"type":"phase:end","runId":"fixture-full-run","seq":32,"tMs":2400,"phase":"search","durationMs":890}
+{"type":"phase:start","runId":"fixture-full-run","seq":33,"tMs":2410,"phase":"repair"}
+{"type":"repair:propose","runId":"fixture-full-run","seq":34,"tMs":2420,"slotId":"9A","before":"EY","after":"EX","editDistance":1,"gate":"pattern-valid"}
+{"type":"repair:reject","runId":"fixture-full-run","seq":35,"tMs":2425,"slotId":"9A","before":"EY","after":"EZ","gate":"tier1-rescore","reason":"score not improved"}
+{"type":"repair:accept","runId":"fixture-full-run","seq":36,"tMs":2430,"slotId":"9A","before":"EY","after":"EX","editDistance":1,"tier":1,"producedBy":"test/tier1-model"}
+{"type":"phase:end","runId":"fixture-full-run","seq":37,"tMs":2600,"phase":"repair","durationMs":190}
+{"type":"phase:start","runId":"fixture-full-run","seq":38,"tMs":2610,"phase":"score"}
+{"type":"phase:end","runId":"fixture-full-run","seq":39,"tMs":2650,"phase":"score","durationMs":40}
+{"type":"score:final","runId":"fixture-full-run","seq":40,"tMs":2660,"accuracy":{"letters":0.9545454545454546,"words":0.8181818181818182,"perfect":false,"emptyCells":0}}
+{"type":"cost:summary","runId":"fixture-full-run","seq":41,"tMs":2665,"perTier":{"tier1":{"calls":9,"usdBilled":0.0234,"usdCounterfactual":0.0234},"tier2":{"calls":1,"usdBilled":0.008,"usdCounterfactual":0.02}}}
+{"type":"grid:final","runId":"fixture-full-run","seq":42,"tMs":2670,"letters":[["O","H",null,"P","I"],["R","E","Y","O","N"],["A","V","O","I","D"],["L","O","U","S","E"],[null,"C",null,"E","X"]]}
+{"type":"run:end","runId":"fixture-full-run","seq":43,"tMs":2700,"status":"partial","wallMs":2700}
