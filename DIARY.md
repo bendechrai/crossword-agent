@@ -46,14 +46,20 @@ This returned HTTP 200, and the subagent validated and pretty-printed the result
 
 12. **Researched crossword solving algorithms.** While the sources research was running I kicked off a second research piece on solving algorithms, this time on a stronger model because it had to synthesise the literature with my own sketch of the flow. docs/crossword-algorithms.md covers Proverb, Dr.Fill, the Berkeley Crossword Solver, WebCrow and the recent LLM-era work, with the numbers read from the papers themselves rather than search snippets. The recommended design keeps the LLM strictly as a candidate oracle: deterministic code models the grid as a constraint satisfaction problem, prunes candidate lists with arc consistency, searches with backtracking ordered by confidence margin, and finishes with a bounded local-repair pass. The critique of my sketch changed three things: self-reported confidence is a routing signal, not a probability; on a dead end, re-ask the cheap model with the letter pattern before escalating or backtracking; and when backtracking, undo the least confident crossing rather than the most recent one. It also flagged that my sketch had no repair pass, which the Berkeley ablation suggests is worth roughly half the perfect-puzzle rate. A few word-list licences could not be verified and are marked as such in the doc.
 
+## 2026-09-03
+
+13. **Wrote the system spec.** With the algorithm research in hand I asked for the specs to be solidified: a way to pull crosswords in, list what is held locally, solve one and show the result, verbosity flags from -v to -vvv, a live grid view while the solver works, metrics on every run, and a way to bench different models and strategies against each other. The orchestrator's design answer was to make the solver a pure state machine that emits typed events, with the LLM behind a cached candidate service; console output, the live view, run records and replay are all just subscribers to that stream. docs/spec.md turns that into module signatures, a CLI reference, an event taxonomy mapped to verbosity levels, a run-record schema, and named strategy profiles, so the question of whether to escalate early or exhaust backtracking first becomes a bench run over the same cached candidates. Two things I added mid-way: every inference request and response is logged raw to a local JSONL file, always on, so we can debug and report after the fact; and the project runs as a long-lived Docker container that you exec into, so anyone can clone it and run the solver with nothing but Docker on their machine. Assumptions I accepted: TypeScript in strict mode, npm, one model call per clue. Six milestones are laid out, starting with the grid model and puzzle loader.
+
 ## Current state
 
 Main is pushed to the public remote at https://github.com/bendechrai/crossword-agent. The repo contains:
 - `.env` - holds NEBIUS_API_KEY, ignored by git
+- `.env.example` - template with NEBIUS_API_KEY placeholder for new users
 - `.gitignore` - excludes `.env` and `.env.*`, keeps `.env.example`
 - `LICENSE` - MIT License, copyright 2026 Ben Dechrai
 - `models.json` - the fetched Nebius Token Factory model catalogue
 - `docs/model-selection.md` - model shortlist and reasoning for the Nebius catalogue
 - `docs/crossword-sources.md` - sources of machine-readable crossword puzzles, file formats, and npm parsers; top three by variety
 - `docs/crossword-algorithms.md` - survey of prior art in automated crossword solving and the recommended algorithm for the Node.js solver
+- `docs/spec.md` - system specification, architecture, CLI reference, event taxonomy, run-record schema, strategy profiles, milestones
 - `DIARY.md` - this file
