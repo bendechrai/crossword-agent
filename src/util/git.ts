@@ -26,6 +26,22 @@ function resolveGitDir(root: string): string | null {
   return null;
 }
 
+/**
+ * `<gitDir>/commondir`, present only in a worktree's per-worktree gitdir. It
+ * names the common gitdir (typically `../..`) where refs, packed-refs, and
+ * objects actually live; the per-worktree gitdir holds only HEAD and other
+ * worktree-local state.
+ */
+function resolveCommonDir(gitDir: string): string | null {
+  try {
+    const text = readFileSync(join(gitDir, 'commondir'), 'utf8').trim();
+    if (text.length === 0) return null;
+    return isAbsolute(text) ? text : join(gitDir, text);
+  } catch {
+    return null;
+  }
+}
+
 /** A loose ref file, `<gitDir>/<ref>` (for example `refs/heads/main`). */
 function readLooseRef(gitDir: string, ref: string): string | null {
   try {
@@ -58,9 +74,12 @@ function readPackedRef(gitDir: string, ref: string): string | null {
 
 /**
  * T17 (B30): read `.git/HEAD`, follow the ref, fall back to
- * `.git/packed-refs`, then `$GIT_COMMIT`, then `"unknown"`. No git binary is
- * invoked, because the container does not have one, and provenance never
- * fails a run.
+ * `.git/packed-refs`, then `$GIT_COMMIT`, then `"unknown"`. Also follows a
+ * worktree's `gitdir:` pointer file, then its `commondir` when the
+ * per-worktree gitdir has no ref for HEAD itself (refs live in the common
+ * dir for a worktree checkout, which is this repo's own layout). No git
+ * binary is invoked, because the container does not have one, and
+ * provenance never fails a run.
  */
 export function readGitCommit(root?: string): string {
   const base = root ?? repoRoot();
@@ -77,6 +96,16 @@ export function readGitCommit(root?: string): string {
           if (loose) return loose;
           const packed = readPackedRef(gitDir, ref);
           if (packed) return packed;
+          // Worktree checkouts keep only HEAD in the per-worktree gitdir;
+          // refs and packed-refs live in the common dir named by
+          // `<gitDir>/commondir` (see resolveCommonDir).
+          const commonDir = resolveCommonDir(gitDir);
+          if (commonDir) {
+            const commonLoose = readLooseRef(commonDir, ref);
+            if (commonLoose) return commonLoose;
+            const commonPacked = readPackedRef(commonDir, ref);
+            if (commonPacked) return commonPacked;
+          }
         }
       }
     }

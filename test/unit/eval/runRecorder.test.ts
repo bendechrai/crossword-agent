@@ -395,6 +395,53 @@ describe('readGitCommit', () => {
 
     expect(readGitCommit(dir)).toBe('from-env');
   });
+
+  it('resolves a worktree checkout by following commondir to the main repo', () => {
+    // A worktree checkout: `<worktree>/.git` is a pointer file to a
+    // per-worktree gitdir under `<main>/.git/worktrees/<name>`, which holds
+    // HEAD and a `commondir` file naming the main `.git` (refs and
+    // packed-refs live there, not under the per-worktree gitdir).
+    const root = tempDir();
+    const mainDir = join(root, 'main');
+    const worktreeDir = join(root, 'wt');
+    const perWorktreeGitDir = join(mainDir, '.git', 'worktrees', 'wt');
+
+    mkdirSync(join(mainDir, '.git', 'refs', 'heads'), { recursive: true });
+    const hash = 'c'.repeat(40);
+    writeFileSync(join(mainDir, '.git', 'refs', 'heads', 'task'), `${hash}\n`);
+
+    mkdirSync(perWorktreeGitDir, { recursive: true });
+    writeFileSync(join(perWorktreeGitDir, 'HEAD'), 'ref: refs/heads/task\n');
+    writeFileSync(join(perWorktreeGitDir, 'commondir'), '../..\n');
+
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(join(worktreeDir, '.git'), `gitdir: ${perWorktreeGitDir}\n`);
+
+    expect(readGitCommit(worktreeDir)).toBe(hash);
+  });
+
+  it('resolves a worktree checkout against a packed-refs entry in the common dir', () => {
+    const root = tempDir();
+    const mainDir = join(root, 'main');
+    const worktreeDir = join(root, 'wt');
+    const perWorktreeGitDir = join(mainDir, '.git', 'worktrees', 'wt');
+
+    mkdirSync(join(mainDir, '.git'), { recursive: true });
+    const hash = 'd'.repeat(40);
+    writeFileSync(
+      join(mainDir, '.git', 'packed-refs'),
+      `# pack-refs with: peeled fully-peeled sorted\n${hash} refs/heads/task\n`,
+    );
+
+    mkdirSync(perWorktreeGitDir, { recursive: true });
+    writeFileSync(join(perWorktreeGitDir, 'HEAD'), 'ref: refs/heads/task\n');
+    writeFileSync(join(perWorktreeGitDir, 'commondir'), '../..\n');
+
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(join(worktreeDir, '.git'), `gitdir: ${perWorktreeGitDir}\n`);
+
+    expect(readGitCommit(worktreeDir)).toBe(hash);
+  });
 });
 
 describe('createRunRecorder', () => {
