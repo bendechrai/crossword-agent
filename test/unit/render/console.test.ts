@@ -4,7 +4,15 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { ConsoleRenderer } from '../../../src/render/console.js';
+import { Chalk } from 'chalk';
+
+import {
+  ConsoleRenderer,
+  formatDiffLines,
+  formatGridLines,
+  type Blocks,
+  type FinalLetters,
+} from '../../../src/render/console.js';
 import { MIN_LEVEL } from '../../../src/events/levels.js';
 import type { Level, SolverEvent } from '../../../src/events/types.js';
 
@@ -214,5 +222,110 @@ describe('ConsoleRenderer: level-0 final block (acceptance 5)', () => {
     expect(text).toContain('Final grid:');
     expect(text).toContain('Diff: no solution supplied');
     expect(text).toContain('Score: letters=0.955');
+  });
+});
+
+describe('ConsoleRenderer: control characters in string payload fields', () => {
+  it('escapes an embedded newline so the event still prints as exactly one physical line', () => {
+    const event: SolverEvent = {
+      type: 'llm:request',
+      runId: 'test-run',
+      seq: 0,
+      tMs: 12,
+      model: 'test/tier1-model',
+      slotId: '1A',
+      prompt: 'Clue: Cry of surprise\n(2 letters, pattern ??)\r\nline three',
+    };
+
+    const sink = makeSink();
+    // A wide columns value keeps the line whole so truncation (a separate,
+    // unrelated concern) cannot hide the escape sequences being asserted on.
+    const renderer = new ConsoleRenderer(3, sink.stream, { color: false, columns: 200 });
+    renderer.handle(event);
+    const text = sink.text();
+
+    // Exactly one line is emitted for the one accepted event: the raw \n and
+    // \r never reach the stream as bare line breaks.
+    const lines = text.split('\n').filter((line) => line.length > 0);
+    expect(lines.length).toBe(1);
+
+    const [line] = lines;
+    expect(line).toBeDefined();
+    // The '+<ms> #<seq>' prefix (and the slot id) is carried by that one line.
+    expect(line).toMatch(/^\+12ms #0 \[1A\] llm:request/);
+    // The control characters survive as visible two-character escapes, not
+    // as literal control bytes.
+    expect(line).toContain('\\n');
+    expect(line).toContain('\\r');
+    expect(line?.includes('\n')).toBe(false);
+    expect(line?.includes('\r')).toBe(false);
+  });
+
+  it('leaves a control-character-free string unquoted, matching prior output', () => {
+    const event: SolverEvent = {
+      type: 'llm:request',
+      runId: 'test-run',
+      seq: 0,
+      tMs: 12,
+      model: 'test/tier1-model',
+      slotId: '1A',
+      prompt: 'Clue: Cry of surprise (2 letters, pattern ??)',
+    };
+
+    const sink = makeSink();
+    const renderer = new ConsoleRenderer(3, sink.stream, { color: false, columns: 200 });
+    renderer.handle(event);
+    const text = sink.text();
+
+    expect(text).toContain('prompt=Clue: Cry of surprise (2 letters, pattern ??)');
+  });
+});
+
+describe('formatGridLines and formatDiffLines: exported pure functions (reused by T39)', () => {
+  // A block (r0c2), an empty non-block cell (r0c1), a wrong letter (r1c1)
+  // and correct letters elsewhere, so grid/diff/empty are all exercised.
+  const blocks: Blocks = [
+    [false, false, true],
+    [false, false, false],
+  ];
+  const letters: FinalLetters = [
+    ['a', null, null],
+    ['b', 'c', 'd'],
+  ];
+  const solution: ReadonlyArray<ReadonlyArray<string | null>> = [
+    ['A', '', ''],
+    ['B', 'X', 'D'],
+  ];
+
+  it('formatGridLines renders blocks and uppercased letters the same way the class does', () => {
+    expect(formatGridLines(blocks, letters)).toEqual(['A.#', 'BCD']);
+  });
+
+  it('formatGridLines reports unavailability without throwing', () => {
+    expect(formatGridLines(null, letters)).toEqual(['(grid unavailable)']);
+    expect(formatGridLines(blocks, null)).toEqual(['(grid unavailable)']);
+  });
+
+  it('formatDiffLines marks the wrong and empty cells with the injected paint function', () => {
+    const paint = new Chalk({ level: 0 });
+    const lines = formatDiffLines(blocks, letters, solution, paint);
+    expect(lines[0]).toBe('Diff: 1 wrong, 1 empty');
+    expect(lines).toContain('  r1c1 expected X got C');
+    expect(lines).toContain('  r0c1 empty');
+  });
+
+  it('formatDiffLines reports missing grid or solution without throwing', () => {
+    expect(formatDiffLines(null, letters, solution, new Chalk({ level: 0 }))).toEqual([
+      'Diff: grid unavailable',
+    ]);
+    expect(formatDiffLines(blocks, letters, null, new Chalk({ level: 0 }))).toEqual([
+      'Diff: no solution supplied',
+    ]);
+  });
+
+  it('ConsoleRenderer delegates to the same exported functions (no drift)', () => {
+    const text = render(0, { color: false, solution: SYNTHETIC_5X5_SOLUTION });
+    expect(text).toContain('Diff: 1 wrong, 0 empty');
+    expect(text).toContain('r1c1 expected A got E');
   });
 });

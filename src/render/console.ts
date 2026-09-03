@@ -31,8 +31,8 @@ export interface ConsoleRendererOptions {
 
 type PerTier = CostSummaryEvent['perTier'];
 type Accuracy = ScoreFinalEvent['accuracy'];
-type Blocks = GridInitEvent['blocks'];
-type FinalLetters = GridFinalEvent['letters'];
+export type Blocks = GridInitEvent['blocks'];
+export type FinalLetters = GridFinalEvent['letters'];
 
 /** Fields every `SolverEvent` carries, excluded from the generic key=value dump. */
 const EVENT_BASE_KEYS = new Set(['type', 'runId', 'seq', 'tMs']);
@@ -71,9 +71,21 @@ function slotIdOf(event: SolverEvent): string | null {
   }
 }
 
+/** Matches any ASCII control character, including \n, \r and \t. */
+const CONTROL_CHAR_RE = /[\x00-\x1f]/;
+
+/**
+ * A string containing a control character (most importantly \n or \r) would
+ * otherwise split one printed event across several physical lines, breaking
+ * the "one line per accepted event" contract and desynchronising the
+ * '+<ms> #<seq>' prefix from every physical line but the first. JSON.stringify
+ * renders such a string as a single-line, double-quoted literal with \n, \r
+ * etc. as two-character escape sequences; a string with no control
+ * characters is left bare, matching prior output exactly.
+ */
 function formatValue(value: unknown): string {
   if (value === null) return 'null';
-  if (typeof value === 'string') return value;
+  if (typeof value === 'string') return CONTROL_CHAR_RE.test(value) ? JSON.stringify(value) : value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value);
 }
@@ -87,6 +99,78 @@ function detailOf(event: SolverEvent): string {
     entries.push(`${key}=${formatValue(rest[key])}`);
   }
   return entries.join(' ');
+}
+
+/**
+ * Renders the final grid as one string per row: `#` for a block, `.` for an
+ * empty cell, the uppercased letter otherwise. Pure and exported so other
+ * renderers (T39's WatchRenderer) can reuse it read-only rather than
+ * duplicating the logic.
+ */
+export function formatGridLines(blocks: Blocks | null, letters: FinalLetters | null): string[] {
+  if (blocks === null || letters === null) return ['(grid unavailable)'];
+  const out: string[] = [];
+  for (let row = 0; row < blocks.length; row++) {
+    const blockRow: readonly boolean[] = blocks[row] ?? [];
+    const letterRow: ReadonlyArray<string | null> = letters[row] ?? [];
+    let text = '';
+    for (let col = 0; col < blockRow.length; col++) {
+      if (blockRow[col] === true) {
+        text += '#';
+        continue;
+      }
+      const letter = letterRow[col] ?? null;
+      text += letter === null ? '.' : letter.toUpperCase();
+    }
+    out.push(text);
+  }
+  return out;
+}
+
+/**
+ * Renders the diff against the solution: a header naming the wrong and empty
+ * cell counts, then one line per wrong cell (expected vs. got, got painted
+ * red) and one line per empty cell. Pure and exported per docs/plan.md T39
+ * ("the diff overlay reuses T14's diff formatting by importing it
+ * (read-only)") so the two renderers cannot disagree.
+ */
+export function formatDiffLines(
+  blocks: Blocks | null,
+  letters: FinalLetters | null,
+  solution: ReadonlyArray<ReadonlyArray<string | null>> | null,
+  paint: ChalkInstance,
+): string[] {
+  if (blocks === null || letters === null) return ['Diff: grid unavailable'];
+  if (solution === null) return ['Diff: no solution supplied'];
+
+  const wrong: Array<{ row: number; col: number; expected: string; got: string }> = [];
+  const empty: Array<{ row: number; col: number }> = [];
+
+  for (let row = 0; row < blocks.length; row++) {
+    const blockRow: readonly boolean[] = blocks[row] ?? [];
+    const letterRow: ReadonlyArray<string | null> = letters[row] ?? [];
+    const solutionRow: ReadonlyArray<string | null> = solution[row] ?? [];
+    for (let col = 0; col < blockRow.length; col++) {
+      if (blockRow[col] === true) continue;
+      const got = letterRow[col] ?? null;
+      if (got === null) {
+        empty.push({ row, col });
+        continue;
+      }
+      const expected = (solutionRow[col] ?? '').toUpperCase();
+      const gotUpper = got.toUpperCase();
+      if (gotUpper !== expected) {
+        wrong.push({ row, col, expected, got: gotUpper });
+      }
+    }
+  }
+
+  const header = `Diff: ${wrong.length} wrong, ${empty.length} empty`;
+  const wrongLines = wrong.map(
+    (w) => `  r${w.row}c${w.col} expected ${w.expected} got ${paint.red(w.got)}`,
+  );
+  const emptyLines = empty.map((e) => `  r${e.row}c${e.col} empty`);
+  return [header, ...wrongLines, ...emptyLines];
 }
 
 /**
@@ -174,57 +258,11 @@ export class ConsoleRenderer {
   }
 
   private gridLines(): string[] {
-    if (this.blocks === null || this.finalLetters === null) return ['(grid unavailable)'];
-    const out: string[] = [];
-    for (let row = 0; row < this.blocks.length; row++) {
-      const blockRow: readonly boolean[] = this.blocks[row] ?? [];
-      const letterRow: ReadonlyArray<string | null> = this.finalLetters[row] ?? [];
-      let text = '';
-      for (let col = 0; col < blockRow.length; col++) {
-        if (blockRow[col] === true) {
-          text += '#';
-          continue;
-        }
-        const letter = letterRow[col] ?? null;
-        text += letter === null ? '.' : letter.toUpperCase();
-      }
-      out.push(text);
-    }
-    return out;
+    return formatGridLines(this.blocks, this.finalLetters);
   }
 
   private diffLines(): string[] {
-    if (this.blocks === null || this.finalLetters === null) return ['Diff: grid unavailable'];
-    if (this.solution === null) return ['Diff: no solution supplied'];
-
-    const wrong: Array<{ row: number; col: number; expected: string; got: string }> = [];
-    const empty: Array<{ row: number; col: number }> = [];
-
-    for (let row = 0; row < this.blocks.length; row++) {
-      const blockRow: readonly boolean[] = this.blocks[row] ?? [];
-      const letterRow: ReadonlyArray<string | null> = this.finalLetters[row] ?? [];
-      const solutionRow: ReadonlyArray<string | null> = this.solution[row] ?? [];
-      for (let col = 0; col < blockRow.length; col++) {
-        if (blockRow[col] === true) continue;
-        const got = letterRow[col] ?? null;
-        if (got === null) {
-          empty.push({ row, col });
-          continue;
-        }
-        const expected = (solutionRow[col] ?? '').toUpperCase();
-        const gotUpper = got.toUpperCase();
-        if (gotUpper !== expected) {
-          wrong.push({ row, col, expected, got: gotUpper });
-        }
-      }
-    }
-
-    const header = `Diff: ${wrong.length} wrong, ${empty.length} empty`;
-    const wrongLines = wrong.map(
-      (w) => `  r${w.row}c${w.col} expected ${w.expected} got ${this.paint.red(w.got)}`,
-    );
-    const emptyLines = empty.map((e) => `  r${e.row}c${e.col} empty`);
-    return [header, ...wrongLines, ...emptyLines];
+    return formatDiffLines(this.blocks, this.finalLetters, this.solution, this.paint);
   }
 
   private scoreLine(): string {
