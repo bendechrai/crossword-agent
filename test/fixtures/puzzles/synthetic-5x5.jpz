@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<crossword-compiler-applet>
+  <rectangular-puzzle xmlns="http://crossword.info/xml/rectangular-puzzle">
+    <metadata>
+      <title>Synthetic five</title>
+      <creator>crossword-agent</creator>
+    </metadata>
+    <crossword>
+      <grid width="5" height="5">
+        <cell x="1" y="1" solution="O" number="1"/>
+        <cell x="2" y="1" solution="H" number="2"/>
+        <cell x="3" y="1" type="block"/>
+        <cell x="4" y="1" solution="P" number="3"/>
+        <cell x="5" y="1" solution="I" number="4"/>
+        <cell x="1" y="2" solution="R" number="5"/>
+        <cell x="2" y="2" solution="A"/>
+        <cell x="3" y="2" solution="Y" number="6"/>
+        <cell x="4" y="2" solution="O"/>
+        <cell x="5" y="2" solution="N"/>
+        <cell x="1" y="3" solution="A" number="7"/>
+        <cell x="2" y="3" solution="V"/>
+        <cell x="3" y="3" solution="O"/>
+        <cell x="4" y="3" solution="I"/>
+        <cell x="5" y="3" solution="D"/>
+        <cell x="1" y="4" solution="L" number="8"/>
+        <cell x="2" y="4" solution="O"/>
+        <cell x="3" y="4" solution="U"/>
+        <cell x="4" y="4" solution="S"/>
+        <cell x="5" y="4" solution="E"/>
+        <cell x="1" y="5" type="block"/>
+        <cell x="2" y="5" solution="C"/>
+        <cell x="3" y="5" type="block"/>
+        <cell x="4" y="5" solution="E" number="9"/>
+        <cell x="5" y="5" solution="X"/>
+      </grid>
+      <clues>
+        <title>Across</title>
+        <clue number="1">Cry of surprise</clue>
+        <clue number="3">Greek letter of a famous ratio</clue>
+        <clue number="5">Synthetic silk-like fabric</clue>
+        <clue number="7">Steer clear of</clue>
+        <clue number="8">Small parasitic insect</clue>
+        <clue number="9">Former partner</clue>
+      </clues>
+      <clues>
+        <title>Down</title>
+        <clue number="1">Spoken rather than written</clue>
+        <clue number="2">Chaos and destruction</clue>
+        <clue number="3">Calm self-assurance</clue>
+        <clue number="4">Alphabetical list at the back of a book</clue>
+        <clue number="6">The person being addressed</clue>
+      </clues>
+    </crossword>
+  </rectangular-puzzle>
+</crossword-compiler-applet>

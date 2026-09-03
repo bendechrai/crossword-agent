@@ -1,0 +1,54 @@
+{
+  "version": "http://ipuz.org/v2",
+  "kind": ["http://ipuz.org/crossword#1"],
+  "dimensions": { "width": 7, "height": 7 },
+  "title": "Synthetic seven",
+  "author": "crossword-agent",
+  "puzzle": [
+    [1, 2, 3, "#", 4, 5, 6],
+    [7, 0, 0, "#", 8, 0, 0],
+    [9, 0, 0, 10, 0, 0, 0],
+    ["#", "#", "#", 0, "#", "#", "#"],
+    [11, 12, 13, 0, 14, 15, 16],
+    [17, 0, 0, "#", 18, 0, 0],
+    [19, 0, 0, "#", 20, 0, 0]
+  ],
+  "solution": [
+    ["B", "O", "W", "#", "T", "E", "A"],
+    ["A", "D", "O", "#", "O", "A", "R"],
+    ["N", "E", "W", "Y", "O", "R", "K"],
+    ["#", "#", "#", "E", "#", "#", "#"],
+    ["F", "I", "A", "N", "C", "E", "\u00C9"],
+    ["A", "C", "T", "#", "U", "R", "N"],
+    ["T", "E", "E", "#", "P", "A", "D"]
+  ],
+  "clues": {
+    "Across": [
+      [1, "Ribbon knot"],
+      [4, "Drink brewed from leaves"],
+      [7, "Fuss or bother"],
+      [8, "Rowing blade"],
+      [9, "US city on the Hudson (3,4)"],
+      [11, "Woman engaged to be married"],
+      [17, "Perform on stage"],
+      [18, "Vase for ashes"],
+      [19, "Golf peg"],
+      [20, "Cushion or writing block"]
+    ],
+    "Down": [
+      [1, "Official prohibition"],
+      [2, "Poem of praise"],
+      [3, "Impress hugely"],
+      [4, "As well; also"],
+      [5, "Listening organ on the head"],
+      [6, "Noah's big boat"],
+      [10, "Japanese currency"],
+      [11, "Adipose tissue"],
+      [12, "Frozen liquid in a drink"],
+      [13, "Consumed a meal"],
+      [14, "Trophy or mug"],
+      [15, "Historical period"],
+      [16, "Final part"]
+    ]
+  }
+}
