@@ -13,3 +13,7 @@ puzzles/**
 .env
 .env.*
 !.env.example
+
+.claude/worktrees/
+# agent worktrees and local settings
+.claude/

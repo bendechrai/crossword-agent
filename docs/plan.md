@@ -1498,3 +1498,14 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 **`package.json` is frozen after T0.** Every script and dependency any later task needs is declared in T0, with stub script files where the implementation comes later. If a dependency genuinely turns out to be missing, that is a contract-fix task.
 
 **Deferred tasks.** T53 and T54 are v1.1 (B4). They keep their ids and their file ownership so that nothing in v1 accidentally claims those files. Do not start them until v1 has shipped.
+
+## Status
+
+| id | status | merged commit | notes |
+| --- | --- | --- | --- |
+| T0 | done | 6ea2059 | Contracts, scaffold and synthetic fixtures. |
+| T1 | done | 6ea2059 | Docker image, compose, xw wrapper and preflight script. |
+
+## Blocked
+
+None yet.
