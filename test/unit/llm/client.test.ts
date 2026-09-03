@@ -280,6 +280,42 @@ describe('createNebiusTransport: the API key never reaches the log file', () => 
   });
 });
 
+describe('createNebiusTransport: limiter slot release on non-HTTP exits (review fix)', () => {
+  it('releases the acquired slot when fetch rejects with a network error (maxRetries 0)', async () => {
+    const log = fakeLog();
+    const transport = createNebiusTransport({
+      apiKey: FAKE_API_KEY,
+      // Nothing listens on 127.0.0.1:1: connection is refused, never routed
+      // externally.
+      baseUrl: 'http://127.0.0.1:1',
+      inferenceLog: log,
+      maxRetries: 0,
+    });
+
+    await expect(transport.complete(makeRequest())).rejects.toBeTruthy();
+
+    expect(getLimiter(MODEL).snapshot().inFlight).toBe(0);
+  });
+
+  it('releases the acquired slot when the request is aborted', async () => {
+    const log = fakeLog();
+    const controller = new AbortController();
+    controller.abort();
+    const transport = createNebiusTransport({
+      apiKey: FAKE_API_KEY,
+      baseUrl: 'http://127.0.0.1:1',
+      inferenceLog: log,
+      maxRetries: 0,
+    });
+
+    await expect(
+      transport.complete(makeRequest({ signal: controller.signal })),
+    ).rejects.toBeTruthy();
+
+    expect(getLimiter(MODEL).snapshot().inFlight).toBe(0);
+  });
+});
+
 describe('createNebiusTransport: missing NEBIUS_API_KEY', () => {
   it('throws a CliError naming the .env hint, never an opaque 401', () => {
     const log = fakeLog();

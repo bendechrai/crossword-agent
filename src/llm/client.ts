@@ -274,55 +274,88 @@ export function createNebiusTransport(opts: NebiusTransportOptions): LlmTranspor
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       await limiter.acquire(estimatedTokens);
 
-      const startedAt = Date.now();
-      let response: Response | undefined;
-      let networkErrorMessage: string | null = null;
+      // Exactly one `observe()` per `acquire()`: the HTTP path below calls
+      // `observeOnce` with the real status once a response arrives, and the
+      // `finally` below covers every other exit from this attempt (a
+      // rethrown AbortError, a network error, or any future early return) so
+      // a slot is never left permanently checked out of the limiter (see the
+      // T33 review fix: acquire() without a matching observe() starves
+      // `maxConcurrency` after `maxConcurrency` failed attempts). `status: 0`
+      // is not 429, so it never triggers the AIMD backoff meant for real
+      // rate-limit responses.
+      let observed = false;
+      const observeOnce = (signal: RateLimitSignal): void => {
+        if (observed) return;
+        observed = true;
+        limiter.observe(signal);
+      };
+
       try {
-        response = await doFetch(`${baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(buildRequestBody(req)),
-          ...(req.signal !== undefined ? { signal: req.signal } : {}),
-        });
-      } catch (err) {
-        if (isAbortError(err)) throw err;
-        networkErrorMessage = err instanceof Error ? err.message : String(err);
-      }
-      const latencyMs = Date.now() - startedAt;
+        const startedAt = Date.now();
+        let response: Response | undefined;
+        let networkErrorMessage: string | null = null;
+        try {
+          response = await doFetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(buildRequestBody(req)),
+            ...(req.signal !== undefined ? { signal: req.signal } : {}),
+          });
+        } catch (err) {
+          if (isAbortError(err)) throw err;
+          networkErrorMessage = err instanceof Error ? err.message : String(err);
+        }
+        const latencyMs = Date.now() - startedAt;
 
-      if (response === undefined) {
-        inferenceLog.write(
-          buildRecord({
-            req,
-            attempt,
-            httpStatus: null,
-            headers: {},
-            rawResponse: null,
-            usage: null,
-            latencyMs,
-            error: networkErrorMessage,
-          }),
-        );
-        lastStatus = null;
-        lastErrorMessage = networkErrorMessage;
-        if (attempt === maxRetries) break;
-        await sleep(backoffMs(attempt, random));
-        continue;
-      }
+        if (response === undefined) {
+          inferenceLog.write(
+            buildRecord({
+              req,
+              attempt,
+              httpStatus: null,
+              headers: {},
+              rawResponse: null,
+              usage: null,
+              latencyMs,
+              error: networkErrorMessage,
+            }),
+          );
+          lastStatus = null;
+          lastErrorMessage = networkErrorMessage;
+          if (attempt === maxRetries) break;
+          await sleep(backoffMs(attempt, random));
+          continue;
+        }
 
-      const bodyText = await response.text();
-      const headers = headersToRecord(response.headers);
-      const parsedBody = tryParseJson(bodyText);
-      const rateLimitHeaders = parseRateLimitHeaders(headers);
-      const signal: RateLimitSignal = { status: response.status, ...rateLimitHeaders };
-      limiter.observe(signal);
+        const bodyText = await response.text();
+        const headers = headersToRecord(response.headers);
+        const parsedBody = tryParseJson(bodyText);
+        const rateLimitHeaders = parseRateLimitHeaders(headers);
+        const signal: RateLimitSignal = { status: response.status, ...rateLimitHeaders };
+        observeOnce(signal);
 
-      if (response.status === 200) {
-        const usage = extractUsage(parsedBody);
-        if (usage === undefined) {
+        if (response.status === 200) {
+          const usage = extractUsage(parsedBody);
+          if (usage === undefined) {
+            inferenceLog.write(
+              buildRecord({
+                req,
+                attempt,
+                httpStatus: response.status,
+                headers,
+                rawResponse: bodyText,
+                usage: null,
+                latencyMs,
+                error: 'malformed 200 response: no usable usage block',
+              }),
+            );
+            throw providerError(
+              `Nebius transport: ${req.model} returned 200 with no usable usage block`,
+            );
+          }
           inferenceLog.write(
             buildRecord({
               req,
@@ -330,15 +363,15 @@ export function createNebiusTransport(opts: NebiusTransportOptions): LlmTranspor
               httpStatus: response.status,
               headers,
               rawResponse: bodyText,
-              usage: null,
+              usage,
               latencyMs,
-              error: 'malformed 200 response: no usable usage block',
+              error: null,
             }),
           );
-          throw providerError(
-            `Nebius transport: ${req.model} returned 200 with no usable usage block`,
-          );
+          return { text: extractText(parsedBody), usage, httpStatus: 200, headers, latencyMs };
         }
+
+        const errorMessage = extractErrorMessage(parsedBody) ?? `HTTP ${response.status}`;
         inferenceLog.write(
           buildRecord({
             req,
@@ -346,49 +379,37 @@ export function createNebiusTransport(opts: NebiusTransportOptions): LlmTranspor
             httpStatus: response.status,
             headers,
             rawResponse: bodyText,
-            usage,
+            usage: null,
             latencyMs,
-            error: null,
+            error: errorMessage,
           }),
         );
-        return { text: extractText(parsedBody), usage, httpStatus: 200, headers, latencyMs };
-      }
+        lastStatus = response.status;
+        lastErrorMessage = errorMessage;
 
-      const errorMessage = extractErrorMessage(parsedBody) ?? `HTTP ${response.status}`;
-      inferenceLog.write(
-        buildRecord({
-          req,
+        const retryable =
+          response.status === 429 || (response.status >= 500 && response.status < 600);
+        if (!retryable) {
+          throw providerError(
+            `Nebius transport: ${req.model} returned HTTP ${response.status}: ${errorMessage}`,
+          );
+        }
+        if (attempt === maxRetries) break;
+
+        const retryAfterMs = response.status === 429 ? rateLimitHeaders.retryAfterMs : undefined;
+        const clampedRetryAfterMs = retryAfterMs !== undefined ? Math.max(0, retryAfterMs) : null;
+        emit?.({
+          type: 'rate:limited',
+          model: req.model,
+          status: response.status,
+          retryAfterMs: clampedRetryAfterMs,
           attempt,
-          httpStatus: response.status,
-          headers,
-          rawResponse: bodyText,
-          usage: null,
-          latencyMs,
-          error: errorMessage,
-        }),
-      );
-      lastStatus = response.status;
-      lastErrorMessage = errorMessage;
-
-      const retryable = response.status === 429 || (response.status >= 500 && response.status < 600);
-      if (!retryable) {
-        throw providerError(
-          `Nebius transport: ${req.model} returned HTTP ${response.status}: ${errorMessage}`,
-        );
+        });
+        const delayMs = clampedRetryAfterMs ?? backoffMs(attempt, random);
+        await sleep(delayMs);
+      } finally {
+        observeOnce({ status: 0 });
       }
-      if (attempt === maxRetries) break;
-
-      const retryAfterMs = response.status === 429 ? rateLimitHeaders.retryAfterMs : undefined;
-      const clampedRetryAfterMs = retryAfterMs !== undefined ? Math.max(0, retryAfterMs) : null;
-      emit?.({
-        type: 'rate:limited',
-        model: req.model,
-        status: response.status,
-        retryAfterMs: clampedRetryAfterMs,
-        attempt,
-      });
-      const delayMs = clampedRetryAfterMs ?? backoffMs(attempt, random);
-      await sleep(delayMs);
     }
 
     const lastStatusText = lastStatus === null ? 'a network error' : `HTTP ${lastStatus}`;
