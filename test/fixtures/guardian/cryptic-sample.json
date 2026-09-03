@@ -1,0 +1,196 @@
+{
+  "crossword": {
+    "entries": [
+      {
+        "id": "1-across",
+        "number": 1,
+        "direction": "across",
+        "position": { "x": 0, "y": 0 },
+        "length": 3,
+        "clue": "Vehicle for hire",
+        "solution": "CAB",
+        "separatorLocations": {}
+      },
+      {
+        "id": "1-down",
+        "number": 1,
+        "direction": "down",
+        "position": { "x": 0, "y": 0 },
+        "length": 3,
+        "clue": "Household pet",
+        "solution": "CAT",
+        "separatorLocations": {}
+      },
+      {
+        "id": "2-down",
+        "number": 2,
+        "direction": "down",
+        "position": { "x": 2, "y": 0 },
+        "length": 7,
+        "clue": "Yellow fruit that's crazy (3,4)",
+        "solution": "BANANAS",
+        "separatorLocations": { ",": [2] }
+      },
+      {
+        "id": "3-across",
+        "number": 3,
+        "direction": "across",
+        "position": { "x": 4, "y": 0 },
+        "length": 3,
+        "clue": "Star at the centre of our solar system",
+        "solution": "SUN",
+        "separatorLocations": {}
+      },
+      {
+        "id": "3-down",
+        "number": 3,
+        "direction": "down",
+        "position": { "x": 4, "y": 0 },
+        "length": 7,
+        "clue": "Marine growth washed up on shore",
+        "solution": "SEAWEED",
+        "separatorLocations": { ",": [3] }
+      },
+      {
+        "id": "4-down",
+        "number": 4,
+        "direction": "down",
+        "position": { "x": 6, "y": 0 },
+        "length": 3,
+        "clue": "Fishing gear, or a website suffix",
+        "solution": "NET",
+        "separatorLocations": {}
+      },
+      {
+        "id": "5-across",
+        "number": 5,
+        "direction": "across",
+        "position": { "x": 2, "y": 1 },
+        "length": 3,
+        "clue": "How many years old one is",
+        "solution": "AGE",
+        "separatorLocations": {}
+      },
+      {
+        "id": "6-across",
+        "number": 6,
+        "direction": "across",
+        "position": { "x": 0, "y": 2 },
+        "length": 3,
+        "clue": "Metal container substance",
+        "solution": "TIN",
+        "separatorLocations": {}
+      },
+      {
+        "id": "7-down",
+        "number": 7,
+        "direction": "down",
+        "position": { "x": 1, "y": 2 },
+        "length": 3,
+        "clue": "Frozen H2O",
+        "solution": "ICE",
+        "separatorLocations": {}
+      },
+      {
+        "id": "8-across",
+        "number": 8,
+        "direction": "across",
+        "position": { "x": 4, "y": 2 },
+        "length": 3,
+        "clue": "Small industrious insect",
+        "solution": "ANT",
+        "separatorLocations": {}
+      },
+      {
+        "id": "9-down",
+        "number": 9,
+        "direction": "down",
+        "position": { "x": 5, "y": 2 },
+        "length": 3,
+        "clue": "Short daytime sleep",
+        "solution": "NAP",
+        "separatorLocations": {}
+      },
+      {
+        "id": "10-across",
+        "number": 10,
+        "direction": "across",
+        "position": { "x": 1, "y": 3 },
+        "length": 5,
+        "clue": "Test fixture filler word one",
+        "solution": "CATWA",
+        "separatorLocations": {}
+      },
+      {
+        "id": "11-across",
+        "number": 11,
+        "direction": "across",
+        "position": { "x": 0, "y": 4 },
+        "length": 3,
+        "clue": "Number after nine",
+        "solution": "TEN",
+        "separatorLocations": {}
+      },
+      {
+        "id": "11-down",
+        "number": 11,
+        "direction": "down",
+        "position": { "x": 0, "y": 4 },
+        "length": 3,
+        "clue": "Highest point",
+        "solution": "TOP",
+        "separatorLocations": {}
+      },
+      {
+        "id": "12-across",
+        "number": 12,
+        "direction": "across",
+        "position": { "x": 4, "y": 4 },
+        "length": 3,
+        "clue": "Test fixture filler word two",
+        "solution": "EPS",
+        "separatorLocations": {}
+      },
+      {
+        "id": "13-down",
+        "number": 13,
+        "direction": "down",
+        "position": { "x": 6, "y": 4 },
+        "length": 3,
+        "clue": "Ocean, briefly",
+        "solution": "SEA",
+        "separatorLocations": {}
+      },
+      {
+        "id": "14-across",
+        "number": 14,
+        "direction": "across",
+        "position": { "x": 2, "y": 5 },
+        "length": 3,
+        "clue": "Consumed food",
+        "solution": "ATE",
+        "separatorLocations": {}
+      },
+      {
+        "id": "15-across",
+        "number": 15,
+        "direction": "across",
+        "position": { "x": 0, "y": 6 },
+        "length": 3,
+        "clue": "Test fixture filler word three",
+        "solution": "PAS",
+        "separatorLocations": {}
+      },
+      {
+        "id": "16-across",
+        "number": 16,
+        "direction": "across",
+        "position": { "x": 4, "y": 6 },
+        "length": 3,
+        "clue": "Test fixture filler word four",
+        "solution": "DOA",
+        "separatorLocations": {}
+      }
+    ]
+  }
+}
