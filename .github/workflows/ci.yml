@@ -16,8 +16,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      # Coverage thresholds are enforced from wave 4 (T51); the tree is stub-heavy until then.
-      - run: npm test
+      - run: npm test -- --coverage
 
   image:
     runs-on: ubuntu-latest
