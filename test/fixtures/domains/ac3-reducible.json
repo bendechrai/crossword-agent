@@ -1,0 +1,115 @@
+{
+  "name": "ac3-reducible",
+  "description": "Three slots in a 2x2 corner. One candidate of 1A (\"ZZ\") has no support at either crossing, so arc (1A,1D) drops it and nothing else moves.",
+  "puzzle": {
+    "id": "ac3-reducible",
+    "source": "synthetic",
+    "title": "AC-3 reducible corner",
+    "style": "american",
+    "width": 2,
+    "height": 2,
+    "parsedBy": "xd-crossword-tools",
+    "cells": [
+      [
+        {
+          "row": 0,
+          "col": 0,
+          "block": false,
+          "number": 1
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "block": false,
+          "number": 2
+        }
+      ],
+      [
+        {
+          "row": 1,
+          "col": 0,
+          "block": false
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "block": false
+        }
+      ]
+    ],
+    "slots": [
+      {
+        "id": "1A",
+        "number": 1,
+        "direction": "across",
+        "row": 0,
+        "col": 0,
+        "length": 2,
+        "clue": "Cry of surprise",
+        "cells": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      },
+      {
+        "id": "1D",
+        "number": 1,
+        "direction": "down",
+        "row": 0,
+        "col": 0,
+        "length": 2,
+        "clue": "Beast of burden, briefly",
+        "cells": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "2D",
+        "number": 2,
+        "direction": "down",
+        "row": 0,
+        "col": 1,
+        "length": 2,
+        "clue": "Greeting",
+        "cells": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      }
+    ]
+  },
+  "domains": {
+    "1A": [
+      "OH",
+      "AH",
+      "ZZ"
+    ],
+    "1D": [
+      "OX",
+      "AX"
+    ],
+    "2D": [
+      "HI",
+      "HE"
+    ]
+  }
+}
