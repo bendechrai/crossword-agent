@@ -1529,6 +1529,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T23 | done | d1b40ed | wave 1; three review rounds plus one final scoped review |
 | T24 | done | 6384d73 | wave 2 |
 | T25 | done | 4e4f0b9 | wave 2 |
+| T26 | done | 2dd1914 | wave 2 |
 
 ## Blocked
 
