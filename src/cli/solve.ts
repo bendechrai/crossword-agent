@@ -4,7 +4,7 @@ import { openCandidateCache } from '../candidates/cache.js';
 import { createCandidateService } from '../candidates/service.js';
 import { pathKind, loadConfig } from '../config.js';
 import { createEventBus } from '../events/bus.js';
-import type { SolverEvent } from '../events/types.js';
+import type { CostSummaryEvent, SolverEvent } from '../events/types.js';
 import { IndexUpsertError, createRunRecorder } from '../eval/runRecorder.js';
 import type {
   RunRecorderIndexUpdate,
@@ -80,6 +80,15 @@ function truthOf(slots: readonly Slot[], solution: readonly string[][]): Record<
       .join('');
   }
   return out;
+}
+
+type PerTierCost = CostSummaryEvent['perTier'];
+
+function newPerTierCost(): PerTierCost {
+  return {
+    tier1: { calls: 0, usdBilled: 0, usdCounterfactual: 0 },
+    tier2: { calls: 0, usdBilled: 0, usdCounterfactual: 0 },
+  };
 }
 
 /** B31: honoured only when `isTty && !CI && TERM !== 'dumb'`. */
@@ -235,6 +244,30 @@ export async function solveCommand(
   bus.on(recorder.handler);
 
   // -------------------------------------------------------------------------
+  // Cost tally (T44's `SolveDeps` doc comment): `solve()` prices only the
+  // seed pass it makes itself. Every re-ask, escalation and repair call is
+  // priced solely on the `llm:usage` event the candidate service emits
+  // straight to the bus, which never passes through `solve()`. Subscribing
+  // here and handing `() => costTally` back as `deps.costs` below replaces
+  // (rather than adds to) `solve()`'s own seed-only tally, since the seed
+  // pass's calls emit `llm:usage` too - see `CandidateService.callTransport`
+  // (src/candidates/service.ts) - and reach this same handler. This mirrors
+  // `RunRecorder`'s own `modelTier` (src/eval/runRecorder.ts), which is why
+  // the printed cost block agrees with the run record.
+  // -------------------------------------------------------------------------
+  const costTally = newPerTierCost();
+  bus.on((event) => {
+    if (event.type !== 'llm:usage') return;
+    const tier =
+      event.model === profile.tier1 ? 'tier1' : event.model === profile.tier2 ? 'tier2' : null;
+    if (tier === null) return;
+    const stats = costTally[tier];
+    stats.calls += 1;
+    stats.usdBilled += event.usdBilled;
+    stats.usdCounterfactual += event.usdCounterfactual;
+  });
+
+  // -------------------------------------------------------------------------
   // Renderers: `ConsoleRenderer(level)` normally; `WatchRenderer` in place of
   // it when `--watch` and B31 hold (see the doc comment above); `JsonlEventSink`
   // at `-vvv` or `--trace`.
@@ -359,6 +392,7 @@ export async function solveCommand(
     emit: (event) => { bus.emit(event); },
     score: (snapshot) => score(snapshot, solution, puzzle.slots),
     puzzle,
+    costs: () => costTally,
   };
 
   const solveOpts: SolveRunOptions = {

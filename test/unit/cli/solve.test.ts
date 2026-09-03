@@ -382,4 +382,55 @@ describe('solveCommand', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.opts).toBeDefined();
   });
+
+  it('review finding 1: deps.costs() tallies llm:usage events from solve() by tier, not just the seed pass', async () => {
+    const { fn, calls } = mockSolve();
+    const wrappedFn: NonNullable<SolveCommandOverrides['solve']> = (deps, profile, opts) => {
+      // Two calls on tier1 (e.g. seed pass plus a re-ask) and one on tier2
+      // (an escalation), exactly as the candidate service's own
+      // `callTransport` would emit them straight to the bus - never passing
+      // through solve()'s own seed-only `cost` tally.
+      deps.emit({
+        type: 'llm:usage',
+        model: profile.tier1,
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        usdBilled: 0.01,
+        usdCounterfactual: 0.01,
+        latencyMs: 5,
+      });
+      deps.emit({
+        type: 'llm:usage',
+        model: profile.tier1,
+        usage: { promptTokens: 8, completionTokens: 4, totalTokens: 12 },
+        usdBilled: 0.008,
+        usdCounterfactual: 0.008,
+        latencyMs: 6,
+      });
+      deps.emit({
+        type: 'llm:usage',
+        model: profile.tier2,
+        usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+        usdBilled: 0.05,
+        usdCounterfactual: 0.09,
+        latencyMs: 12,
+      });
+      return fn(deps, profile, opts);
+    };
+    const overrides = baseOverrides();
+    const out = join(tmpDir('crossword-cli-solve-out-'), 'run.json');
+
+    await solveCommand(
+      'synthetic-5x5',
+      cliOptions({ out }),
+      GLOBAL,
+      { ...overrides, solve: wrappedFn },
+    );
+
+    expect(calls).toHaveLength(1);
+    const costs = calls[0]?.deps.costs?.();
+    expect(costs?.tier1.calls).toBe(2);
+    expect(costs?.tier1.usdBilled).toBeCloseTo(0.018, 10);
+    expect(costs?.tier1.usdCounterfactual).toBeCloseTo(0.018, 10);
+    expect(costs?.tier2).toEqual({ calls: 1, usdBilled: 0.05, usdCounterfactual: 0.09 });
+  });
 });
