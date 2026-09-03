@@ -28,7 +28,7 @@
         },
         "schemaVersion": { "const": 1 },
         "parsedBy": {
-          "enum": ["@xwordly/xword-parser", "xd-crossword-tools", "guardian-json"]
+          "enum": ["@xwordly/xword-parser", "xd-crossword-tools", "guardian-json", "xd-hand"]
         },
         "addedAt": { "type": "string", "format": "date-time" },
         "bestLetterAccuracy": {

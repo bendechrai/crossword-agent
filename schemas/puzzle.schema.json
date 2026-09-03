@@ -16,7 +16,7 @@
     "width": { "type": "integer", "minimum": 1 },
     "height": { "type": "integer", "minimum": 1 },
     "parsedBy": {
-      "enum": ["@xwordly/xword-parser", "xd-crossword-tools", "guardian-json"]
+      "enum": ["@xwordly/xword-parser", "xd-crossword-tools", "guardian-json", "xd-hand"]
     },
     "cells": {
       "type": "array",

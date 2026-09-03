@@ -5,6 +5,11 @@ logs/
 cache/
 corpora/
 data/
+# test fixtures live under cache/ and runs/ but must not be swallowed by the bare patterns above
+!test/fixtures/cache
+!test/fixtures/cache/**
+!test/fixtures/runs
+!test/fixtures/runs/**
 
 # Fetched puzzles are never committed (B46); the fixtures are.
 puzzles/**
