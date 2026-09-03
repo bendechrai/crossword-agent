@@ -1,3 +1,4 @@
+import { patternMatches } from '../grid/pattern.js';
 import type { Candidate, RejectedAnswer, Tier } from '../candidates/types.js';
 import type { CandidateReject, ValidationResult } from './types.js';
 
@@ -40,26 +41,6 @@ const CHARSET_RE = /^[A-Z]+$/;
 export function normaliseAnswer(raw: string): string {
   const stripped = raw.toUpperCase().replace(STRIP_RE, '');
   return stripped.normalize('NFD').replace(COMBINING_RE, '');
-}
-
-// `grid/pattern.ts` (T5) owns the shared pattern-regex builder, but it is an
-// unimplemented stub within this task's own wave (both T5 and T6 depend only
-// on T0), so building the regex there and calling into it here would throw
-// NotImplementedError at test time. This is a tiny, self-contained
-// duplicate of the same `? -> [A-Z]`, anchored construction described in the
-// spec; see the deviations note in the PR for the follow-up once T5 lands.
-const patternRegexCache = new Map<string, RegExp>();
-
-function regexForPattern(pattern: string): RegExp {
-  const cached = patternRegexCache.get(pattern);
-  if (cached !== undefined) return cached;
-  const body = pattern
-    .split('')
-    .map((ch) => (ch === '?' ? '[A-Z]' : ch))
-    .join('');
-  const re = new RegExp(`^${body}$`);
-  patternRegexCache.set(pattern, re);
-  return re;
 }
 
 /**
@@ -130,7 +111,7 @@ export function validateCandidates(input: ValidateInput): ValidateCandidatesResu
       rejects.push({ answer, raw: r.answer, reason: 'length' });
       return;
     }
-    if (!regexForPattern(input.pattern).test(answer)) {
+    if (!patternMatches(input.pattern, answer)) {
       rejects.push({ answer, raw: r.answer, reason: 'pattern' });
       return;
     }
