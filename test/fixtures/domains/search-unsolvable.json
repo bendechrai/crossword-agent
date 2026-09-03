@@ -1,0 +1,30 @@
+{
+  "description": "A 3x3 open grid with no consistent fill: 2D's candidates all start with B, and 1A's candidates all start with C, so whichever value 1A takes wipes 2D out. Used for the LDS-restart ceiling and the maxBacktracks cap, both of which must end the search gracefully with the best partial fill.",
+  "grid": ["...", "...", "..."],
+  "domains": {
+    "1A": [
+      { "answer": "CAT", "score": 0.9 },
+      { "answer": "COT", "score": 0.5 }
+    ],
+    "4A": [
+      { "answer": "ARE", "score": 0.5 },
+      { "answer": "ACE", "score": 0.45 }
+    ],
+    "5A": [
+      { "answer": "BED", "score": 0.5 },
+      { "answer": "BID", "score": 0.45 }
+    ],
+    "1D": [
+      { "answer": "CAB", "score": 0.5 },
+      { "answer": "COB", "score": 0.45 }
+    ],
+    "2D": [
+      { "answer": "BEE", "score": 0.8 },
+      { "answer": "BUY", "score": 0.6 }
+    ],
+    "3D": [
+      { "answer": "TED", "score": 0.5 },
+      { "answer": "TAD", "score": 0.45 }
+    ]
+  }
+}

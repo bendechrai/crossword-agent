@@ -1,0 +1,30 @@
+{
+  "description": "A 3x3 open grid where the first-ranked value of the first slot branched on (1A = COT, margin 0.40) wipes out 2D. The search assigns it, wipes out, backtracks onto 1A itself (the only assigned slot crossing 2D) and completes on 1A's second value. Every margin is distinct, so the whole run is decided without touching the tie-break PRNG.",
+  "grid": ["...", "...", "..."],
+  "domains": {
+    "1A": [
+      { "answer": "COT", "score": 0.9 },
+      { "answer": "CAT", "score": 0.5 }
+    ],
+    "4A": [
+      { "answer": "ARE", "score": 0.52 },
+      { "answer": "ACE", "score": 0.4 }
+    ],
+    "5A": [
+      { "answer": "BED", "score": 0.51 },
+      { "answer": "BID", "score": 0.4 }
+    ],
+    "1D": [
+      { "answer": "CAB", "score": 0.55 },
+      { "answer": "COB", "score": 0.4 }
+    ],
+    "2D": [
+      { "answer": "ARE", "score": 0.7 },
+      { "answer": "ACE", "score": 0.4 }
+    ],
+    "3D": [
+      { "answer": "TED", "score": 0.6 },
+      { "answer": "TAD", "score": 0.4 }
+    ]
+  }
+}

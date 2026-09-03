@@ -1,0 +1,30 @@
+{
+  "description": "A 3x3 open grid built so the lowest-margin crossing assignment and the chronologically last assignment differ. Assignment order is 1D (margin 0.60), 1A (margin 0.40), 2D (margin 0.95); assigning 2D wipes out 4A. 4A is crossed by 1D and 2D only, so the backtrack target is 1D - neither the chronologically last assignment (2D) nor the lowest-margin assignment overall (1A, which does not cross 4A).",
+  "grid": ["...", "...", "..."],
+  "domains": {
+    "1A": [
+      { "answer": "CAT", "score": 0.8 },
+      { "answer": "CAP", "score": 0.4 }
+    ],
+    "4A": [
+      { "answer": "ORE", "score": 0.7 },
+      { "answer": "ADO", "score": 0.2 }
+    ],
+    "5A": [
+      { "answer": "DEN", "score": 0.6 },
+      { "answer": "BEN", "score": 0.25 }
+    ],
+    "1D": [
+      { "answer": "CAB", "score": 0.95 },
+      { "answer": "COD", "score": 0.35 }
+    ],
+    "2D": [
+      { "answer": "ARE", "score": 0.95 },
+      { "answer": "ORE", "score": 0.9 }
+    ],
+    "3D": [
+      { "answer": "TEN", "score": 0.6 },
+      { "answer": "TAD", "score": 0.5 }
+    ]
+  }
+}
