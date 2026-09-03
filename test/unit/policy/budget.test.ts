@@ -2,15 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { createBudgetTracker, resolveBudget } from '../../../src/policy/budget.js';
 import type { ResolvedBudget } from '../../../src/policy/types.js';
+import { getBuiltin } from '../../../src/profiles/builtins.js';
 import { ProfileSchema } from '../../../src/profiles/schema.js';
 
-/**
- * `builtins.ts` (T23) is not implemented yet, so "the `baseline` built-in"
- * is stood in for by the schema defaults it is defined to equal (see
- * docs/spec.md "Strategy profiles": `baseline` writes out every default
- * literally). `test/unit/profiles/schema.test.ts` pins that same object.
- */
-const baselineProfile = ProfileSchema.parse({ name: 'baseline' });
+/** The real `baseline` built-in (see docs/spec.md "Strategy profiles"). */
+const baselineProfile = getBuiltin('baseline');
 
 /** A budget with every cap generously large, so a test can override just the one it cares about. */
 function permissiveBudget(overrides: Partial<ResolvedBudget> = {}): ResolvedBudget {

@@ -27,12 +27,13 @@ import { ProfileSchema } from '../../../src/profiles/schema.js';
 
 const addFormats = ajvFormatsModule.default as unknown as FormatsPlugin;
 
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
+
 function compileRunRecordSchema() {
-  const root = fileURLToPath(new URL('../../..', import.meta.url));
   const ajv = new Ajv2020({ strict: false, allErrors: true });
   addFormats(ajv);
   const schema = JSON.parse(
-    readFileSync(join(root, 'schemas', 'run-record.schema.json'), 'utf8'),
+    readFileSync(join(REPO_ROOT, 'schemas', 'run-record.schema.json'), 'utf8'),
   ) as AnySchemaObject;
   return ajv.compile(schema);
 }
@@ -40,6 +41,45 @@ function compileRunRecordSchema() {
 const profile = ProfileSchema.parse({ name: 'baseline' });
 const TIER1 = profile.tier1;
 const TIER2 = profile.tier2;
+
+const FIXTURE_EVENTS_PATH = join(REPO_ROOT, 'test', 'fixtures', 'events', 'full-run.events.jsonl');
+
+/**
+ * T14's committed events fixture, parsed directly from JSONL: the canonical
+ * source for the "main path" tests below (acceptance 1). Read fresh each
+ * call so a test that maps over the array (`eventsScoring`) never mutates
+ * what another test sees.
+ */
+function loadFixtureEvents(): SolverEvent[] {
+  return readFileSync(FIXTURE_EVENTS_PATH, 'utf8')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as SolverEvent);
+}
+
+/**
+ * The correct answer for every slot in `test/fixtures/events/full-run.events.jsonl`'s
+ * `synthetic-5x5` grid, hand-derived from each clue (independently of the
+ * fixture's own `grid:final`, which records what the run actually filled in,
+ * including its one deliberately wrong letter at row 1 col 1 - see T14's
+ * reviewer notes in docs/build-notes/wave-1.md). This is what a real caller
+ * would load via B11's solution grid; the fixture's event stream never
+ * carries it.
+ */
+const FIXTURE_TRUTH: Readonly<Record<string, string>> = {
+  '1A': 'OH',
+  '1D': 'ORAL',
+  '2D': 'HAVOC',
+  '3A': 'PI',
+  '3D': 'POISE',
+  '4D': 'INDEX',
+  '5A': 'RAYON',
+  '6D': 'YOU',
+  '7A': 'AVOID',
+  '8A': 'LOUSE',
+  '9A': 'EX',
+};
 
 const temps: string[] = [];
 
@@ -90,13 +130,13 @@ function grid5x5() {
 }
 
 /**
- * A full happy-path run: two slots, a fresh tier-1 call and a cache-hit
- * tier-1 call in the seed pass, a backtrack cycle, an ac3 reduction, a
- * tier-2 repair call that is accepted, then a perfect score. Stands in for
- * `test/fixtures/events/full-run.events.jsonl` (T14's fixture), which does
- * not exist yet in this wave - see the PR's "Deviations" note.
+ * A minimal two-slot run with a fresh tier-1 call and a cache-hit tier-1
+ * call in the seed pass. Used only by the one test below whose shape
+ * `test/fixtures/events/full-run.events.jsonl` lacks: the fixture's single
+ * `llm:usage` event is a cache miss, so it cannot exercise the
+ * usdCounterfactual-vs-usdBilled divergence a cache hit produces.
  */
-function fullRunEvents(): SolverEvent[] {
+function cacheHitEvents(): SolverEvent[] {
   const b = new EventBuilder('test-run');
   const { width, height, blocks, numbers } = grid5x5();
 
@@ -213,61 +253,6 @@ function fullRunEvents(): SolverEvent[] {
   });
   b.push({ ...b.next(), type: 'phase:end', phase: 'seed', durationMs: 500 });
 
-  // Search: two backtracks, a wipeout and an ac3 reduction.
-  b.push({ ...b.next(), type: 'phase:start', phase: 'search' });
-  b.push({ ...b.next(), type: 'search:unassign', slotId: '1A', answer: 'CAT' });
-  b.push({ ...b.next(), type: 'search:backtrack', slotId: '1A', margin: 0.4, reason: 'crossing wipeout' });
-  b.push({
-    ...b.next(),
-    type: 'search:assign',
-    slotId: '1A',
-    answer: 'CAT',
-    score: 0.9,
-    margin: 0.4,
-    tier: 1,
-    producedBy: TIER1,
-  });
-  b.push({ ...b.next(), type: 'search:backtrack', slotId: '2D', margin: 0.3, reason: 'lds restart' });
-  b.push({ ...b.next(), type: 'search:wipeout', slotId: '2D' });
-  b.push({ ...b.next(), type: 'ac3:reduce', slotId: '1A', otherSlotId: '2D', removed: ['XAT'] });
-  b.push({ ...b.next(), type: 'phase:end', phase: 'search', durationMs: 800 });
-
-  // Repair: one tier-2 call, accepted.
-  b.push({ ...b.next(), type: 'phase:start', phase: 'repair' });
-  b.push({ ...b.next(), type: 'cache:lookup', key: 'k3', hit: false, slotId: '2D' });
-  b.push({ ...b.next(), type: 'llm:request', model: TIER2, slotId: '2D', prompt: 'p2' });
-  b.push({ ...b.next(), type: 'llm:response', model: TIER2, slotId: '2D', raw: 'r2' });
-  b.push({
-    ...b.next(),
-    type: 'llm:usage',
-    model: TIER2,
-    usage: { promptTokens: 50, completionTokens: 10, reasoningTokens: 5, totalTokens: 65 },
-    usdBilled: 0.0009,
-    usdCounterfactual: 0.0009,
-    latencyMs: 150,
-  });
-  b.push({
-    ...b.next(),
-    type: 'repair:propose',
-    slotId: '2D',
-    before: 'DOGS',
-    after: 'DOGS',
-    editDistance: 0,
-    gate: 'crossing-check',
-  });
-  b.push({
-    ...b.next(),
-    type: 'repair:accept',
-    slotId: '2D',
-    before: 'DOGS',
-    after: 'DOGS',
-    editDistance: 0,
-    tier: 2,
-    producedBy: TIER2,
-  });
-  b.push({ ...b.next(), type: 'phase:end', phase: 'repair', durationMs: 300 });
-
-  // Score.
   b.push({ ...b.next(), type: 'phase:start', phase: 'score' });
   b.push({
     ...b.next(),
@@ -280,14 +265,15 @@ function fullRunEvents(): SolverEvent[] {
   return b.events;
 }
 
-const TRUTH = { '1A': 'CAT', '2D': 'DOGS' };
 const FIXED_AT = new Date('2026-09-03T10:15:00Z');
 const FIXED_GIT_COMMIT = 'f'.repeat(40);
 
 /**
  * Every test routes `--out` through a temp directory (cleaned up in
  * `afterEach`) rather than the default `runs/<runId>.json`, so a test run
- * never writes into the real repo's `runs/` directory.
+ * never writes into the real repo's `runs/` directory. Defaults describe the
+ * fixture's own `synthetic-5x5` grid (11 slots); a test driving a different
+ * event stream overrides `puzzle`/`truth` as needed.
  */
 function baseRecorderOptions() {
   return {
@@ -298,9 +284,9 @@ function baseRecorderOptions() {
       style: 'american' as const,
       stratum: 'american' as const,
       size: '5x5',
-      slots: 2,
+      slots: 11,
     },
-    truth: TRUTH,
+    truth: FIXTURE_TRUTH,
     profile,
     profileSource: 'builtin',
     repeatIndex: 0,
@@ -454,7 +440,7 @@ describe('readGitCommit', () => {
 describe('createRunRecorder', () => {
   it('produces a RunRecord that validates against schemas/run-record.schema.json', async () => {
     const recorder = createRunRecorder(baseRecorderOptions());
-    for (const event of fullRunEvents()) recorder.handler(event);
+    for (const event of loadFixtureEvents()) recorder.handler(event);
     await recorder.written();
 
     const validate = compileRunRecordSchema();
@@ -466,7 +452,7 @@ describe('createRunRecorder', () => {
     const dir = tempDir();
     const out = join(dir, 'out.json');
     const recorder = createRunRecorder({ ...baseRecorderOptions(), out });
-    for (const event of fullRunEvents()) recorder.handler(event);
+    for (const event of loadFixtureEvents()) recorder.handler(event);
 
     const written = await recorder.written();
     expect(written).toBe(out);
@@ -474,27 +460,38 @@ describe('createRunRecorder', () => {
     expect(onDisk.runId).toBe(recorder.record().runId);
   });
 
-  it('counts search.backtracks, repair.accepted and calls.tier1.count as literals', async () => {
+  it('counts search.backtracks, repair.accepted and calls.tier1.count as literals (recomputed against the fixture)', async () => {
     const recorder = createRunRecorder(baseRecorderOptions());
-    for (const event of fullRunEvents()) recorder.handler(event);
+    for (const event of loadFixtureEvents()) recorder.handler(event);
     await recorder.written();
 
     const record = recorder.record();
-    expect(record.search.backtracks).toBe(2);
+    // The fixture has one search:backtrack (slot 5A), one repair:accept
+    // (slot 9A), and exactly one llm:usage event, tied by the FIFO
+    // cache:lookup pairing to the tier-1 (test/tier1-model) call for 1A.
+    expect(record.search.backtracks).toBe(1);
     expect(record.repair.accepted).toBe(1);
-    expect(record.calls.tier1.count).toBe(2);
+    expect(record.calls.tier1.count).toBe(1);
   });
 
   it('makes usdCounterfactual >= usdBilled when a tier has a cache hit, and equal when it does not', async () => {
-    const recorder = createRunRecorder(baseRecorderOptions());
-    for (const event of fullRunEvents()) recorder.handler(event);
+    // The fixture's one llm:usage event is a cache miss (acceptance 1's
+    // "main path" fixture-only coverage does not reach this case), so this
+    // test keeps its own small dedicated stream - see cacheHitEvents' doc
+    // comment.
+    const recorder = createRunRecorder({
+      ...baseRecorderOptions(),
+      puzzle: { ...baseRecorderOptions().puzzle, slots: 2 },
+      truth: { '1A': 'CAT', '2D': 'DOGS' },
+    });
+    for (const event of cacheHitEvents()) recorder.handler(event);
     await recorder.written();
 
     const record = recorder.record();
     // tier1 saw one fresh call and one cache hit.
     expect(record.calls.tier1.usdCounterfactual).toBeGreaterThan(record.calls.tier1.usdBilled);
     expect(record.calls.tier1.cacheHits).toBe(1);
-    // tier2 saw only a fresh call: the two figures coincide.
+    // tier2 was never called: the two figures coincide at zero.
     expect(record.calls.tier2.usdCounterfactual).toBe(record.calls.tier2.usdBilled);
     expect(record.calls.tier2.cacheHits).toBe(0);
   });
@@ -555,7 +552,7 @@ describe('createRunRecorder', () => {
       ...baseRecorderOptions(),
       puzzle: { ...baseRecorderOptions().puzzle, id: 'guardian/27000' },
     });
-    for (const event of fullRunEvents()) recorder.handler(event);
+    for (const event of loadFixtureEvents()) recorder.handler(event);
     await recorder.written();
 
     const record = recorder.record();
@@ -582,9 +579,9 @@ describe('createRunRecorder index upsert', () => {
     };
   }
 
-  /** The full run with its final accuracy replaced, for the "previous row wins" case. */
+  /** The fixture run with its final accuracy replaced, for the "previous row wins" case. */
   function eventsScoring(letters: number): SolverEvent[] {
-    return fullRunEvents().map((event) =>
+    return loadFixtureEvents().map((event) =>
       event.type === 'score:final'
         ? { ...event, accuracy: { letters, words: letters, perfect: false, emptyCells: 2 } }
         : event,
@@ -603,7 +600,7 @@ describe('createRunRecorder index upsert', () => {
         },
       },
     });
-    for (const event of fullRunEvents()) recorder.handler(event);
+    for (const event of loadFixtureEvents()) recorder.handler(event);
     await recorder.written();
 
     const stamp = recorder.record().timestamp;
@@ -616,7 +613,7 @@ describe('createRunRecorder index upsert', () => {
         style: 'american',
         width: 5,
         height: 5,
-        slotCount: 2,
+        slotCount: 11,
         files: {
           original: 'puzzles/synthetic-5x5/original.puz',
           normalised: 'puzzles/synthetic-5x5/normalised.json',
@@ -624,7 +621,9 @@ describe('createRunRecorder index upsert', () => {
         schemaVersion: 1,
         parsedBy: '@xwordly/xword-parser',
         addedAt: stamp,
-        bestLetterAccuracy: 1,
+        // The fixture's own score:final: 21 of 22 letters correct (one
+        // deliberately wrong letter at row 1 col 1).
+        bestLetterAccuracy: 0.9545454545454546,
         lastRunAt: stamp,
       },
     ]);
@@ -636,7 +635,7 @@ describe('createRunRecorder index upsert', () => {
       id: 'synthetic-5x5',
       source: 'synthetic',
       style: 'american',
-      slotCount: 2,
+      slotCount: 11,
       schemaVersion: 1,
       addedAt: '2026-01-01T00:00:00.000Z',
       bestLetterAccuracy: 0.9,
@@ -674,7 +673,7 @@ describe('createRunRecorder index upsert', () => {
         upsertIndexRow: () => Promise.reject(lockTimeout),
       },
     });
-    for (const event of fullRunEvents()) recorder.handler(event);
+    for (const event of loadFixtureEvents()) recorder.handler(event);
 
     const error = await recorder.written().then(
       () => null,
@@ -707,7 +706,7 @@ describe('createRunRecorder index upsert', () => {
           upsertIndexRow: () => Promise.reject(new Error('index locked')),
         },
       });
-      for (const event of fullRunEvents()) recorder.handler(event);
+      for (const event of loadFixtureEvents()) recorder.handler(event);
 
       await vi.waitFor(() => {
         expect(stderr).toHaveBeenCalled();
