@@ -376,13 +376,27 @@ function runRunsReport(opts: ReportOptions): void {
  * `passesFilters` compares this string against the record's own UTC date
  * with plain string comparison, so an unpadded or time-bearing input would
  * silently misorder or exclude a day it should include.
+ *
+ * This is deliberately a plain regex match, not `new Date(value)`: V8 parses
+ * an unpadded date ("2026-1-2") or a zone-less date-time ("2026-01-02T05:00")
+ * as LOCAL time, so `.toISOString().slice(0, 10)` would shift the date by a
+ * day depending on the host's timezone (verified: TZ=Australia/Sydney turns
+ * '2026-1-2' into '2026-01-01'). Matching digits directly keeps the result
+ * independent of `process.env.TZ`.
  */
 function normalizeDateFlag(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(value.trim());
+  if (match === null) {
     throw usageError(`invalid date "${value}"`, 'expected YYYY-MM-DD');
   }
-  return parsed.toISOString().slice(0, 10);
+  const [, year, month, day] = match;
+  const normalized = `${year}-${(month ?? '').padStart(2, '0')}-${(day ?? '').padStart(2, '0')}`;
+  // Reject calendar-invalid dates (e.g. 2026-02-30) via a UTC round-trip.
+  const roundTrip = new Date(`${normalized}T00:00:00Z`);
+  if (Number.isNaN(roundTrip.getTime()) || roundTrip.toISOString().slice(0, 10) !== normalized) {
+    throw usageError(`invalid date "${value}"`, 'expected YYYY-MM-DD');
+  }
+  return normalized;
 }
 
 function buildInferenceFilters(opts: ReportOptions): InferenceFilters {

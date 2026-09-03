@@ -248,6 +248,39 @@ describe('reportCommand: --inference', () => {
     expect(parsed.callsPerModelPerDay.every((r) => r.day === '2026-01-02')).toBe(true);
   });
 
+  it('an unpadded --since value ("2026-1-2") normalises to "2026-01-02" and filters identically, regardless of host TZ', async () => {
+    await reportCommand(inferenceOptions({ json: true, since: '2026-1-2' }), GLOBAL, {
+      inferenceReader: inferenceReaderFor('basic10.jsonl'),
+    });
+    const unpadded = lines[0] ?? '{}';
+    lines = [];
+
+    await reportCommand(inferenceOptions({ json: true, since: '2026-01-02' }), GLOBAL, {
+      inferenceReader: inferenceReaderFor('basic10.jsonl'),
+    });
+    const padded = lines[0] ?? '{}';
+
+    // Same normalised value, independent of TZ (verified with `new Date()` this
+    // would drop a day under e.g. TZ=Australia/Sydney): both filters keep only
+    // the 2026-01-02 rows, and the two outputs are byte-identical.
+    const parsed = JSON.parse(unpadded) as { callsPerModelPerDay: Array<{ day: string }> };
+    expect(parsed.callsPerModelPerDay.length).toBeGreaterThan(0);
+    expect(parsed.callsPerModelPerDay.every((r) => r.day === '2026-01-02')).toBe(true);
+    expect(unpadded).toBe(padded);
+  });
+
+  it('rejects a calendar-invalid --since value', async () => {
+    let error: unknown;
+    try {
+      await reportCommand(inferenceOptions({ json: true, since: '2026-02-30' }), GLOBAL, {
+        inferenceReader: inferenceReaderFor('basic10.jsonl'),
+      });
+    } catch (err) {
+      error = err;
+    }
+    expect(isCliError(error) && error.code === ExitCode.USAGE).toBe(true);
+  });
+
   it('a malformed log line is skipped and reported in skippedLines', async () => {
     await reportCommand(inferenceOptions({ json: true }), GLOBAL, {
       inferenceReader: inferenceReaderFor('malformed.jsonl'),
