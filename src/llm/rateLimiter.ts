@@ -49,7 +49,7 @@ const HEADER = {
 export type RateLimitHeaderSignal = Omit<RateLimitSignal, 'status'>;
 
 function parseIntHeader(value: string | undefined): number | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined || value.trim() === '') return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
 }
@@ -148,6 +148,10 @@ class TokenBucket {
     this.ratePerMs = ratePerMs;
     this.tokens = Math.min(this.tokens, capacity);
   }
+
+  getCapacity(): number {
+    return this.capacity;
+  }
 }
 
 interface QueueEntry {
@@ -220,16 +224,21 @@ class RateLimiterImpl implements RateLimiter {
         // itself, so no timer is needed here.
         return;
       }
-      const wait = Math.max(
-        this.rpsBucket.waitMs(1, now),
-        this.tpmBucket.waitMs(head.estimatedTokens, now),
-      );
+      // A caller that estimates more tokens than the bucket can ever hold
+      // (estimatedTokens > capacity) would otherwise wait forever, since
+      // `refill` caps `tokens` at `capacity` and `waitMs` would stay
+      // positive no matter how long the queue waits - starving every
+      // later caller behind it in this strict-FIFO queue. Clamp the
+      // demand to the bucket's capacity so such a request is instead
+      // granted as soon as the bucket is full.
+      const tpmDemand = Math.min(head.estimatedTokens, this.tpmBucket.getCapacity());
+      const wait = Math.max(this.rpsBucket.waitMs(1, now), this.tpmBucket.waitMs(tpmDemand, now));
       if (wait > 0) {
         this.scheduleWake(wait);
         return;
       }
       this.rpsBucket.consume(1, now);
-      this.tpmBucket.consume(head.estimatedTokens, now);
+      this.tpmBucket.consume(tpmDemand, now);
       this.inFlight += 1;
       this.queue.shift();
       head.resolve();
@@ -247,7 +256,13 @@ class RateLimiterImpl implements RateLimiter {
 
   private applyDecrease(): void {
     const now = Date.now();
-    const next = Math.max(MIN_RPS, this.rps / 2);
+    // The floor is normally MIN_RPS, but a model whose catalogue ceiling is
+    // itself below MIN_RPS (e.g. a low RPM model) must never be floored
+    // above its own ceiling - that would push rps past the ceiling on a
+    // single 429 and `scheduleRecovery` would then see `rps >= ceilingRps`
+    // and never schedule a step back down.
+    const floor = Math.min(MIN_RPS, this.ceilingRps);
+    const next = Math.max(floor, this.rps / 2);
     if (next !== this.rps) {
       this.rps = next;
       this.rpsBucket.resize(this.rps, this.rps / 1000, now);

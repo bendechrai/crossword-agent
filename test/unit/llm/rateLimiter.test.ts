@@ -170,6 +170,22 @@ describe('observe(): AIMD', () => {
     }
     expect(limiter.snapshot().rps).toBe(1);
   });
+
+  it('never raises rps above its pre-signal value on a 429 when the catalogue ceiling is below the 1 rps floor', () => {
+    // Qwen/Qwen2.5-VL-72B-Instruct in models.json: requests_per_minute 20 ->
+    // ceiling = 0.9 * 20 / 60 = 0.3 rps. A floor that ignores the ceiling
+    // (Math.max(1, rps / 2)) would push rps from 0.3 up to 1 on a 429,
+    // 3.3x the catalogue limit, and it would never come back down because
+    // scheduleRecovery() bails out once rps >= ceilingRps.
+    mockLimits({ requestsPerMinute: 20, tokensPerMinute: 1_000_000_000, burstRatio: 1 });
+    const limiter = getLimiter('low-ceiling-model', { rpsFraction: 0.9 });
+    const before = limiter.snapshot().rps;
+    expect(before).toBeCloseTo(0.3, 5);
+
+    limiter.observe({ status: 429 });
+
+    expect(limiter.snapshot().rps).toBeLessThanOrEqual(before);
+  });
 });
 
 describe('the tokens-per-minute bucket', () => {
@@ -197,6 +213,36 @@ describe('the tokens-per-minute bucket', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(secondDone).toBe(true);
   });
+
+  it('resolves acquire() for an estimatedTokens above the bucket capacity instead of hanging forever, and does not starve the caller behind it', async () => {
+    // capacity = rpsFraction * tokensPerMinute = 1 * 1000 = 1000. A request
+    // for 1001 tokens can never be satisfied once `refill` caps tokens at
+    // capacity, so an unclamped waitMs() would stay positive forever and,
+    // because the queue is strict FIFO, the second caller behind it would
+    // never run either.
+    mockLimits({ requestsPerMinute: 1_000_000_000, tokensPerMinute: 1000, burstRatio: 1 });
+    const limiter = getLimiter('tpm-overflow-model', { rpsFraction: 1, maxConcurrency: 10 });
+
+    let firstDone = false;
+    let secondDone = false;
+    void limiter.acquire(1001).then(() => {
+      firstDone = true;
+    });
+    void limiter.acquire(1).then(() => {
+      secondDone = true;
+    });
+    await flushMicrotasks();
+
+    expect(firstDone).toBe(true);
+    expect(secondDone).toBe(false);
+
+    // The clamped 1001-token request drained the bucket to 0 by consuming
+    // its full 1000-token capacity, so the second caller behind it now
+    // just waits for a normal refill, not forever. 1000 tokens/min =
+    // 1000/60000 tokens/ms; 1 token needs 60ms.
+    await vi.advanceTimersByTimeAsync(60);
+    expect(secondDone).toBe(true);
+  });
 });
 
 describe('parseRateLimitHeaders', () => {
@@ -209,6 +255,11 @@ describe('parseRateLimitHeaders', () => {
     expect(result.remainingRequests).toBe(0);
     expect(result.remainingTokens).toBeUndefined();
     expect('remainingTokens' in result).toBe(false);
+  });
+
+  it('treats a present-but-empty header as undefined, never 0 (Number("") is 0, not "missing")', () => {
+    expect(parseRateLimitHeaders({ 'x-ratelimit-remaining-requests': '' })).toEqual({});
+    expect(parseRateLimitHeaders({ 'x-ratelimit-remaining-tokens': '   ' })).toEqual({});
   });
 
   it('maps the seven OpenAI-compatible headers it can act on', () => {
