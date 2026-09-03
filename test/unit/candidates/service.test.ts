@@ -384,6 +384,94 @@ describe('acceptance 5: a batched response missing one id', () => {
     expect(h.service.parseFailures('2D')).toBe(1);
     expect(h.service.parseFailures('1A')).toBe(0);
   });
+
+  it('serves the chunk from cache on a later online run and re-asks nothing', async () => {
+    const reqs = [
+      request({ slotId: '1A', clue: 'Chaos and destruction' }),
+      request({ slotId: '2D', clue: 'Former partner', length: 2, pattern: '??' }),
+      request({ slotId: '3A', clue: 'Feline pet', length: 3, pattern: '???' }),
+    ];
+    const first = harness(
+      stubTransport(
+        batchedBody([
+          ['1A', [['HAVOC', 0.8]]],
+          ['3A', [['CAT', 0.9]]],
+        ]),
+        singleBody([['EX', 0.7]]),
+      ),
+      { profile: profile({ batchSize: 3 }) },
+    );
+    await first.service.getCandidatesBatch(reqs);
+    expect(first.transport.callCount).toBe(2);
+    // 1A and 3A under batch-3 keys, 2D under the batch-1 key of its re-ask.
+    expect(cacheEntries()).toHaveLength(3);
+
+    // The chunk is now only partly cached under its batch-3 keys. A second
+    // online run must serve the two hits and re-ask only 2D, which its own
+    // batch-1 entry answers: the transport is never called, so an unscripted
+    // stub is the assertion.
+    const second = harness(stubTransport(), { profile: profile({ batchSize: 3 }) });
+    const results = await second.service.getCandidatesBatch(reqs);
+
+    expect(second.transport.callCount).toBe(0);
+    expect(results.get('1A')?.candidates.map((c) => c.answer)).toEqual(['HAVOC']);
+    expect(results.get('2D')?.candidates.map((c) => c.answer)).toEqual(['EX']);
+    expect(results.get('3A')?.candidates.map((c) => c.answer)).toEqual(['CAT']);
+    expect([...results.values()].every((r) => r.cacheHit)).toBe(true);
+    expect(second.records.every((r) => r.cacheHit)).toBe(true);
+    // Nothing was rewritten: the same three entries, unchanged.
+    expect(cacheEntries()).toHaveLength(3);
+  });
+
+  it('re-asks only the missing clue when a chunk is partly cached online', async () => {
+    const reqs = [
+      request({ slotId: '1A', clue: 'Chaos and destruction' }),
+      request({ slotId: '2D', clue: 'Former partner', length: 2, pattern: '??' }),
+      request({ slotId: '3A', clue: 'Feline pet', length: 3, pattern: '???' }),
+    ];
+    // A first run caches 1A and 3A under batch-3 keys but drops 2D entirely,
+    // by making its single re-ask unparseable twice.
+    const first = harness(
+      stubTransport(
+        batchedBody([
+          ['1A', [['HAVOC', 0.8]]],
+          ['3A', [['CAT', 0.9]]],
+        ]),
+        'not json at all',
+        'still not json',
+      ),
+      { profile: profile({ batchSize: 3 }) },
+    );
+    await first.service.getCandidatesBatch(reqs);
+    expect(cacheEntries()).toHaveLength(2);
+
+    const second = harness(stubTransport(singleBody([['EX', 0.7]])), {
+      profile: profile({ batchSize: 3 }),
+    });
+    const results = await second.service.getCandidatesBatch(reqs);
+
+    // Exactly one call, for 2D alone, and it does not quote the cached clues.
+    expect(second.transport.callCount).toBe(1);
+    const askText = second.transport.calls[0]?.messages.at(-1)?.content ?? '';
+    expect(askText).toContain('Former partner');
+    expect(askText).not.toContain('Chaos and destruction');
+    expect(askText).not.toContain('Feline pet');
+
+    expect(results.get('1A')?.cacheHit).toBe(true);
+    expect(results.get('3A')?.cacheHit).toBe(true);
+    expect(results.get('2D')?.cacheHit).toBe(false);
+    expect(results.get('2D')?.candidates.map((c) => c.answer)).toEqual(['EX']);
+    // The hits keep their answers and their records say so.
+    const hitRecords = second.records.filter((r) => r.slotId !== '2D');
+    expect(hitRecords.every((r) => r.cacheHit)).toBe(true);
+    // The two batch-3 entries survive; 2D adds one batch-1 entry.
+    const entries = cacheEntries();
+    expect(entries).toHaveLength(3);
+    expect(
+      entries.filter((e) => e.clue !== 'Former partner').every((e) => e.batchSize === 3),
+    ).toBe(true);
+    expect(entries.find((e) => e.clue === 'Former partner')?.batchSize).toBe(1);
+  });
 });
 
 describe('acceptance 6: batching is seed-only (B3)', () => {

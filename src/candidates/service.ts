@@ -525,7 +525,9 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
    * One batched seed call for a whole chunk. Every clue's result is stored
    * under its own key with `batchSize` set to the chunk length, so a batch-1
    * and a batch-3 answer for the same clue can never be mistaken for each
-   * other (B23); any element the parser could not deliver is re-asked singly.
+   * other (B23); any element the parser could not deliver is re-asked singly,
+   * and so is any element the chunk's cache lookup missed, so a chunk that has
+   * lost one element costs that one clue and never the whole chunk again.
    */
   async function askBatch(reqs: ReadonlyArray<CandidateRequest>): Promise<Map<string, CandidateResult>> {
     const results = new Map<string, CandidateResult>();
@@ -577,9 +579,23 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       return results;
     }
 
-    // A partially cached chunk is re-asked whole: the key's `batchSize` has to
-    // describe the prompt that actually produced the answer, so the batch
-    // cannot be narrowed to only its misses without invalidating every key.
+    if (hits.some((hit) => hit !== undefined)) {
+      // A partially cached chunk is never re-asked whole. The key's `batchSize`
+      // has to describe the prompt that produced the answer, so narrowing the
+      // batched prompt would invalidate the chunk's keys; instead each hit is
+      // served from cache and each miss is asked singly under its own batch-1
+      // key, exactly as the offline-lenient and parser-failure paths do. A
+      // missing element then costs that clue only ("Batching clues per
+      // request"), and a clue already cached is never re-paid for nor
+      // overwritten by a later run of the same chunk.
+      for (const [index, req] of reqs.entries()) {
+        const hit = hits[index];
+        if (hit === undefined) results.set(req.slotId, await askSingle(req));
+        else serveHit(req, index, hit);
+      }
+      return results;
+    }
+
     const call = await callTransport(prepared, null);
     const expectedIds = reqs.map((req) => req.slotId);
     const outcome = parseCandidateResponse(call.text, {
