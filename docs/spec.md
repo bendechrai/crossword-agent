@@ -18,7 +18,7 @@ Builds on: [crossword-algorithms.md](./crossword-algorithms.md) (prior art, reco
 - Cryptic-specific prompting (wordplay decomposition, indicator dictionaries). Cryptics are loaded and solved with the general prompt; the style field is passed through so a later prompt version can branch on it.
 - Loopy belief propagation. Domains of 10 unnormalised candidates give near-degenerate marginals; revisit only if a cached corpus makes domains dictionary-scale.
 - A web UI. The terminal renderer is the only visual.
-- Batching multiple clues per LLM request. One call per clue is better for cache hits, parse-failure isolation and re-asks (see the algorithms doc, "Batching under rate limits").
+- Batching as the default (batchSize stays 1 until the batch-size bench justifies otherwise).
 - Fitting calibration weights automatically. v1 ships `rank` calibration; weight fitting is M6.
 - Writing puzzle files. The solver reads only.
 
@@ -264,6 +264,8 @@ export interface InferenceLogRecord {
   promptVersion: string;
   cacheKey: string;
   cacheHit: boolean;
+  batchSize: number;                // 1 for a single-clue call
+  batchIndex: number | null;        // clue's position within the batch; null on a cache hit
   request: {
     messages: Array<{ role: 'system' | 'user'; content: string }>;
     temperature: number; maxTokens: number; topP?: number;
@@ -273,6 +275,7 @@ export interface InferenceLogRecord {
   parsed: CandidateResponse | null;
   parseError: string | null;
   httpStatus: number | null;
+  responseHeaders: Record<string, string>; // never carries authorization or any API-key header - those are request headers
   attempt: number;                  // 0-based retry index
   promptTokens: number | null;
   completionTokens: number | null;
@@ -313,9 +316,9 @@ Storage: the original goes to `puzzles/<source>/<id>.<ext>`, the normalised `Puz
 
 `CandidateService.getCandidates` is the only route the solver has to the outside world, and it does five things in order.
 
-**1. Cache lookup.** Key: `sha1(model, promptVersion, clue, length, pattern, style, sampleIndex)` joined with a separator that cannot occur in a clue. Two layers: an in-process LRU (2,000 entries) and a disk cache at `cache/candidates/<first2>/<sha1>.json` holding `{ key, model, promptVersion, clue, length, pattern, style, sampleIndex, response, usage, latencyMs, createdAt }`. Negative results (zero valid candidates) are cached in the same shape, so backtracking never re-pays for a known dead end. With `--offline`, a miss throws `OfflineCacheMiss` and the run ends the current phase with whatever fill exists.
+**1. Cache lookup.** Key: `sha1(model, promptVersion, clue, length, pattern, style, sampleIndex, batchSize)` joined with a separator that cannot occur in a clue. Two layers: an in-process LRU (2,000 entries) and a disk cache at `cache/candidates/<first2>/<sha1>.json` holding `{ key, model, promptVersion, clue, length, pattern, style, sampleIndex, batchSize, response, usage, latencyMs, createdAt }`. Negative results (zero valid candidates) are cached in the same shape, so backtracking never re-pays for a known dead end. With `--offline`, a miss throws `OfflineCacheMiss` and the run ends the current phase with whatever fill exists.
 
-**2. Tier routing.** `tierRouter` maps `req.tier` to a model id from the profile (`tier1` default `nvidia/Nemotron-3_5-Lightning`, `tier2` default `deepseek-ai/DeepSeek-V4-Pro`) and picks the transport: DeepSeek gets `response_format: { type: 'json_schema', json_schema: <candidate-response.schema.json> }`; Nemotron gets the schema inline in the prompt with a one-shot example. Rate limiting is a token bucket per model seeded from `models.json` `per_request_limits` (600 RPM / 400k TPM for tier 1; 3,000 RPM / 1M TPM for tier 2). Retries: 3 attempts, exponential backoff with jitter, on 429, 5xx and timeouts only.
+**2. Tier routing.** `tierRouter` maps `req.tier` to a model id from the profile (`tier1` default `nvidia/Nemotron-3_5-Lightning`, `tier2` default `deepseek-ai/DeepSeek-V4-Pro`) and picks the transport: DeepSeek gets `response_format: { type: 'json_schema', json_schema: <candidate-response.schema.json> }`; Nemotron gets the schema inline in the prompt with a one-shot example. Rate limiting is a token bucket per model seeded from `models.json` `per_request_limits` (600 RPM / 400k TPM for tier 1; 3,000 RPM / 1M TPM for tier 2); see "Rate limiting" below for the limiter design and retry behaviour.
 
 **3. Parsing.** `llm/parser.ts` strips code fences, extracts the first balanced JSON object, and validates against ajv. On failure it retries once at temperature 0; a second failure counts as a tier-1 failure and is an escalation trigger.
 
@@ -333,9 +336,71 @@ Cache hits are logged too, as records with `cacheHit: true`, `request: null` and
 
 Format: append-only JSONL, one `InferenceLogRecord` per line, at `logs/inference/<YYYY-MM-DD>.jsonl`. Daily files, size-unbounded in v1 (no rotation, no compaction). Writes are fire-and-forget appends through a single write stream per process; a write failure logs a warning once and never fails the run. Each record carries `runId`, so a run's calls can be pulled with `grep` or through `report --inference --run <runId>`.
 
-Redaction: the API key never appears. Request headers are not logged at all, which is the simplest way to guarantee that. No other redaction in v1 - clue text, prompts and raw responses are stored verbatim, since raw data first and metrics derived later is the point.
+Redaction: the API key never appears. Request headers are not logged at all, which is the simplest way to guarantee that; `responseHeaders` captures only the server's response headers, and the authorization header and any header containing the API key are never present there since they are sent, not received. No other redaction in v1 - clue text, prompts and raw responses are stored verbatim, since raw data first and metrics derived later is the point.
 
 `solve` and `bench` take `--no-inference-log` for the rare case it is unwanted; the default is on.
+
+### Rate limiting
+
+Motivation: `nvidia/Nemotron-3_5-Lightning` is limited to 600 RPM (10 per second) and 400,000 TPM; `deepseek-ai/DeepSeek-V4-Pro` to 3,000 RPM and 1,000,000 TPM (from `models.json`). The seed pass on a 15x15 puzzle issues about 78 requests at once, so the limit is a burst problem confined to the first seconds of each puzzle; the search phase issues re-asks at a low rate. `models.json` reports `burst_ratio: 1.0`, suggesting no allowance above steady rate, but whether Nebius enforces a per-second bucket or a sliding per-minute window is unknown and must be determined empirically from logged headers. At around 400 tokens per call, 10 rps is about 240,000 TPM, under the 400,000 limit, so RPM is the binding constraint for tier 1.
+
+**Client-side limiter as primary control.** One token bucket per model id, held in a process-wide singleton (a `RateLimiterRegistry` keyed by model), with `requestsPerSecond` defaulting to 90% of the catalogue RPM divided by 60, a `tokensPerMinute` bucket at 90% of catalogue TPM sized against the estimated prompt tokens plus `max_tokens`, and a per-model `maxConcurrency` (default 8 for tier 1, 16 for tier 2). All callers, including parallel puzzles in `bench`, share the registry.
+
+```ts
+// llm/rateLimiter.ts
+export interface RateLimiter {
+  acquire(estimatedTokens: number): Promise<void>;
+  observe(signal: RateLimitSignal): void;
+  snapshot(): RateLimiterState;
+}
+
+export interface RateLimitSignal {
+  status: number;
+  retryAfterMs?: number;
+  remainingRequests?: number;
+  remainingTokens?: number;
+  resetRequestsMs?: number;
+  resetTokensMs?: number;
+}
+
+export interface RateLimiterState {
+  model: string;
+  rps: number;
+  inFlight: number;
+  queued: number;
+  lastSignal?: RateLimitSignal;
+}
+```
+
+**Server signals as corrective.** The client records every response header into the inference log record (`InferenceLogRecord.responseHeaders: Record<string, string>`); `authorization` and any header containing the API key are never present there, since those are request headers, not response headers - stated here explicitly. The client parses the OpenAI-compatible headers when present (`x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ratelimit-reset-requests`, `x-ratelimit-limit-tokens`, `x-ratelimit-remaining-tokens`, `x-ratelimit-reset-tokens`, `retry-after`), treating all of them as optional because Nebius support is unverified.
+
+On HTTP 429: honour `retry-after` if present, else exponential backoff with full jitter starting at 500 ms, max 5 retries; and apply multiplicative decrease to the bucket rate (halve, floor at 1 rps) with additive recovery (+0.5 rps per 10 s without a 429) back to the configured ceiling. On 5xx: retry with the same backoff, no rate change. Emit a `rate.limited` solver event (level 1) and a `rate.adjusted` event (level 2) so the console shows when throttling happens.
+
+### Batching clues per request
+
+Framing: batching is a latency and cost optimisation for the seed pass (and for re-asks that become pending simultaneously after an AC-3 sweep), not a quota fix, since the seed pass at 10 rps is already about 8 s. Risks: cross-clue contamination, length confusion, positional degradation for later clues in a batch, one malformed object spoiling the batch, and weaker JSON adherence because tier 1 has no structured-output mode.
+
+Design constraints (mandatory):
+
+- Each clue in a batched request carries an `id`, and the response is an array of objects each carrying that `id`; the parser realigns by id and never by position.
+- The candidate cache stays per clue: each clue's result is stored under its own key, and `batchSize` is part of the cache key (see "Cache lookup" above), so batch-1 and batch-5 results never mix.
+- Each element of the response is validated independently; a malformed or missing element costs only that clue, which is re-asked singly.
+- The inference log record gains `batchSize` and `batchIndex` (the clue's position within the batch) fields, so positional accuracy can be measured after the fact.
+- Batching applies only to `purpose: 'seed'` and to `'reask'` when more than one re-ask is pending; never to `'escalate'` or `'repair'`.
+
+Request and response schema for the batched form - the prompt carries an array of clues, and the response is an array of results keyed by the same ids:
+
+```json
+// prompt (batched)
+{ "clues": [{ "id": "12A", "clue": "...", "length": 6, "pattern": "A??I?N", "style": "american" }] }
+
+// response (batched)
+{ "results": [{ "id": "12A", "clue_understood": 0.8, "candidates": [{ "answer": "ANIMAL", "confidence": 0.6 }] }] }
+```
+
+The single-clue form is the `batchSize: 1` case of the same schema, so there is one parser for both.
+
+Profile field: `batchSize: number`, default 1, allowed range 1-8. The eval design for choosing a batch size is in "Strategy profiles" below, next to the escalation-policy bench.
 
 ## Solver pipeline
 
@@ -418,6 +483,7 @@ export const ProfileSchema = z.object({
   candidatesPerAsk: z.number().int().min(1).max(25).default(10),
   calibration: z.enum(['rank', 'votes', 'blend']).default('rank'),
   samples: z.number().int().min(1).max(5).default(1),
+  batchSize: z.number().int().min(1).max(8).default(1),
   reasksPerSlot: z.number().int().min(0).default(2),
   escalation: z.object({
     policy: z.enum(['reask-first', 'eager', 'patient']).default('reask-first'),
@@ -437,14 +503,19 @@ export const ProfileSchema = z.object({
     maxEditDistance: z.number().int().min(1).max(2).default(2),
   }).default({}),
   budget: z.object({ usd: z.number().default(0.5), wallMs: z.number().default(900000) }).default({}),
+  rateLimit: z.object({
+    rpsFraction: z.number().default(0.9),
+    maxConcurrencyTier1: z.number().int().default(8),
+    maxConcurrencyTier2: z.number().int().default(16),
+  }).default({}),
   promptVersion: z.string().default('v1'),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 ```
 
-Built-ins in `src/profiles/builtins.ts`: `baseline` (all defaults - the recommended algorithm as researched); `eager-escalation` (`policy: 'eager'`, escalate on the first wipeout before any re-ask, `reasksPerSlot: 0`); `patient` (`policy: 'patient'`, `reasksPerSlot: 3`, `maxBacktracks: 500`, escalate only for slots still empty when search terminates); `no-repair` (`repair.enabled: false`); `tier1-only` (`maxTier2CallsPerPuzzle: 0`); `strong-only` (`tier1` set to DeepSeek-V4-Pro, as an accuracy upper bound); `votes3` (`calibration: 'votes'`, `samples: 3`).
+Built-ins in `src/profiles/builtins.ts`: `baseline` (all defaults - the recommended algorithm as researched); `eager-escalation` (`policy: 'eager'`, escalate on the first wipeout before any re-ask, `reasksPerSlot: 0`); `patient` (`policy: 'patient'`, `reasksPerSlot: 3`, `maxBacktracks: 500`, escalate only for slots still empty when search terminates); `no-repair` (`repair.enabled: false`); `tier1-only` (`maxTier2CallsPerPuzzle: 0`); `strong-only` (`tier1` set to DeepSeek-V4-Pro, as an accuracy upper bound); `votes3` (`calibration: 'votes'`, `samples: 3`); `batch1` (`batchSize: 1`, equivalent to `baseline`), `batch2`, `batch3`, `batch5`, `batch8` (`batchSize` 2, 3, 5 and 8 respectively, all other fields at default).
 
-**Why experiments are cheap.** The cache key is `(model, promptVersion, clue, length, pattern, style, sampleIndex)` and contains no policy fields. Two profiles differing only in search or escalation policy therefore share every cached query. A second profile over a puzzle set already run pays only for the `(clue, pattern)` combinations no previous run asked for - typically the re-asks that a different policy generates. `--offline` forbids the network entirely and fails any run needing an uncached query, which is what makes the integration tests deterministic.
+**Why experiments are cheap.** The cache key is `(model, promptVersion, clue, length, pattern, style, sampleIndex, batchSize)` and contains no policy fields other than `batchSize` itself, which is included precisely because a batched response is not comparable to a single-clue one. Two profiles differing only in search or escalation policy therefore share every cached query. A second profile over a puzzle set already run pays only for the `(clue, pattern, batchSize)` combinations no previous run asked for - typically the re-asks that a different policy generates. `--offline` forbids the network entirely and fails any run needing an uncached query, which is what makes the integration tests deterministic.
 
 **The open question: escalate sooner, or exhaust permutations first?** Run
 
@@ -454,6 +525,15 @@ crossword report --by profile --compare baseline,eager-escalation,patient --md
 ```
 
 over 30 puzzles (20 American from the xd slice, 10 Guardian cryptic), then compare perfect-puzzle rate, mean USD per puzzle and USD per correct word. **Decision rule:** pick the profile with the highest perfect-puzzle rate, unless its USD per correct word exceeds the best other profile's by more than a factor of 1.5, in which case pick that other profile. Report the letter-accuracy delta alongside, but do not decide on it - letter accuracy saturates and hides exactly the tail this question is about.
+
+**The batch-size question: does batching clues degrade accuracy, and where is the crossover?** Run
+
+```
+crossword bench sets/mixed-30.json --profiles batch1,batch2,batch3,batch5,batch8 --repeat 2
+crossword report --by batchIndex --compare batch1,batch2,batch3,batch5,batch8 --md
+```
+
+over the same 30-puzzle set. Metrics per clue: truth-in-top-k recall (`k = candidatesPerAsk`), top-1 accuracy, length-error rate, parse-failure rate, latency per clue, USD per clue, and accuracy by `batchIndex` to detect positional drop-off; then downstream letter, word and perfect-puzzle accuracy. **Decision rule:** pick the largest batch size whose top-k recall is within 2 percentage points of `batch1` and whose positional accuracy shows no monotonic decline across positions; otherwise stay at 1.
 
 ## Metrics and run records
 
@@ -486,7 +566,7 @@ export interface RunRecord {
 
 `accuracy.letters` and `accuracy.words` are fractions in [0,1]. `usd` is computed by `llm/pricing.ts` from `models.json` as described above; cache hits contribute zero tokens and zero USD but are counted in `cacheHits`. Every number here is derivable from the inference log plus the event stream, which is the point of keeping both.
 
-`report` aggregates a glob of run records (`eval/aggregate.ts`) and emits, per profile: mean and sample standard deviation of letter accuracy, word accuracy and perfect rate; mean USD per puzzle; USD per correct word (`sum(usd) / sum(correct words)`); tier-2 share of calls (`tier2.count / (tier1.count + tier2.count)`); mean wallMs; and budget-hit counts by cap. It also emits a per-slot difficulty view: clues keyed by `(puzzleId, slotId)` with the number of profiles that got them wrong, worst first, which is the fastest way to find prompt bugs. `--compare a,b` prints a paired table with deltas; `--by tier` groups by producing tier instead of profile.
+`report` aggregates a glob of run records (`eval/aggregate.ts`) and emits, per profile: mean and sample standard deviation of letter accuracy, word accuracy and perfect rate; mean USD per puzzle; USD per correct word (`sum(usd) / sum(correct words)`); tier-2 share of calls (`tier2.count / (tier1.count + tier2.count)`); mean wallMs; and budget-hit counts by cap. It also emits a per-slot difficulty view: clues keyed by `(puzzleId, slotId)` with the number of profiles that got them wrong, worst first, which is the fastest way to find prompt bugs. `--compare a,b` prints a paired table with deltas; `--by tier` groups by producing tier instead of profile; `--by batchIndex` groups by the clue's position within its batch, to check for positional drop-off in the batch-size bench.
 
 ## CLI reference
 
@@ -510,7 +590,7 @@ Global options: `--config <path>`, `--no-color`, and `--json` where a command su
 
 **`crossword bench <puzzle-set>`** `--profiles a,b,c` (required) `--repeat <n>` (default 1) `--offline` `--concurrency <n>` (default 2) `--no-inference-log` `--out <dir>` (default `runs/`). `<puzzle-set>` is a JSON file of puzzle ids or a glob. One run record per `(puzzle, profile, repeat)`. Prints a progress line per run and a summary table at the end: profile, n, letters, words, perfect, usd per puzzle, usd per correct word.
 
-**`crossword report`** `--runs <glob>` (default `runs/*.json`) `--compare a,b` `--by profile|puzzle|tier` (default `profile`) `--json|--md`. Prints the aggregates above.
+**`crossword report`** `--runs <glob>` (default `runs/*.json`) `--compare a,b` `--by profile|puzzle|tier|batchIndex` (default `profile`) `--json|--md`. Prints the aggregates above.
 
 **`crossword report --inference`** reads `logs/inference/*.jsonl` instead of run records and answers the basic operational questions: calls per model per day, USD per day, parse-failure rate per model (`parseError != null` over total non-cache-hit calls), cache-hit rate, and the 20 slowest calls by `latencyMs`. Additional filters: `--since <date>` `--until <date>` `--model <id>` `--run <runId>` `--slot <slotId>` `--dump` (print full matching records as JSON, for feeding a parser fixture or debugging a single clue).
 
@@ -531,10 +611,10 @@ Coverage target: 80% lines and 75% branches overall, 95% lines for `src/grid/`, 
 ## Milestones
 
 - **M1** - grid model, puzzle loader for all four formats, source adapters, `fetch`, `list`, `show`, the puzzle index, and the committed fixtures.
-- **M2** - `CandidateService`: prompts, Nebius client, inference log, tier router, parser, validation chain, cache with negatives, `cache` subcommand, rank calibration.
+- **M2** - `CandidateService`: prompts, Nebius client, per-model rate limiter with AIMD backoff, inference log, tier router, parser, validation chain, cache with negatives, `cache` subcommand, rank calibration, batching support behind the `batchSize` profile field (default 1).
 - **M3** - event bus and taxonomy, AC-3 prepass, search with margin ordering and LDS, re-ask, escalation policy, budgets, `solve` with `-v/-vv/-vvv`.
 - **M4** - `WatchRenderer`, `JsonlEventSink`, replay.
-- **M5** - `RunRecorder` and run-record schema, `bench`, `report` and its aggregates, `report --inference`.
+- **M5** - `RunRecorder` and run-record schema, `bench`, `report` and its aggregates, `report --inference`, then the batch-size bench (it needs no repair pass or fitted calibration, so it runs here rather than waiting for M6).
 - **M6** - repair pass, `votes` and `blend` calibration with offline weight fitting against the fixture solutions, then the escalation-policy bench and its decision.
 
 ## Decisions log
@@ -546,11 +626,13 @@ Coverage target: 80% lines and 75% branches overall, 95% lines for `src/grid/`, 
 | Logger | minimal custom leveled logger | Leveled output is the event stream's job; `pino` would be a second competing output path for a handful of bootstrap lines. |
 | Schema library | ajv for wire formats, zod for profiles | DeepSeek structured outputs need JSON Schema, so ajv is required anyway; profiles are internal, and `z.infer` avoids a duplicate hand-written type. |
 | LLM granularity | one call per clue | Better cache hit rate, isolates parse failures, and re-asks are per-slot by nature; 80 clues at 600 RPM is not throughput-bound. |
-| Cache key | `(model, promptVersion, clue, length, pattern, style, sampleIndex)` | Excludes all policy fields, so different strategies share cached queries and only pay for genuinely new `(clue, pattern)` pairs. |
+| Cache key | `(model, promptVersion, clue, length, pattern, style, sampleIndex, batchSize)` | Excludes all policy fields except `batchSize`, so different strategies share cached queries and only pay for genuinely new `(clue, pattern, batchSize)` pairs, while a batched answer never gets confused with a single-clue one. |
 | Architecture | pure solver core emitting typed events | Verbosity, `--watch`, run records, replay and metrics all become subscribers; the solver stays testable and has one outward dependency. |
 | Raw inference log always on | JSONL at `logs/inference/<date>.jsonl`, written in `llm/client` | Debugging and after-the-fact reporting. Metrics in run records are derived, so they can be recomputed from this log if the run-record schema changes; a metric not captured today is still recoverable tomorrow. |
 | Dev environment | Docker only: long-running container plus `docker exec` | Anyone can clone and run the solver with only Docker installed - no Node on the host. A container that stays up means fast repeated commands with no per-invocation start-up, a TTY for `--watch`, and one place for `NEBIUS_API_KEY` via `env_file`. Source, puzzles, runs, logs and cache are bind-mounted, so edits apply immediately and data survives a rebuild. |
 | Confidence | self-reported `clue_understood` is a routing signal, never a score | LLM self-reports are poorly calibrated; the search orders on rank-derived scores instead. |
+| Rate limiting | process-wide per-model token bucket, tuned from logged headers, AIMD on 429 | The seed pass fires dozens of requests at once, so the risk is a burst against an unverified header contract; a client-side bucket is the primary control and is corrected from whatever Nebius actually reports, rather than guessing the enforcement model up front. |
+| Batching | supported, default 1, realign by id, per-clue cache with batchSize in key, evaluated by bench | The seed pass at 10 rps is not slow enough to force batching, so it stays off by default; the id-based realignment and per-clue cache keep a bad batch from contaminating other clues or other batch sizes, and the crossover is a measurement, not a guess. |
 
 ## Open questions
 
@@ -562,5 +644,6 @@ Carried forward from the algorithms doc and not settled here:
 - Is loopy belief propagation worth adding once the cache makes domains dictionary-scale?
 - What is the right repair-pass scorer? v1 re-asks tier 1 per proposal. A character n-gram model trained on the xd corpus may be an adequate free substitute, as it was for Proverb and WebCrow.
 - Do cryptics need their own prompt version and escalation threshold? v1 uses the general prompt and records the style, so the split can be measured from run records already collected.
-- Batch size on the first pass: v1 fixes one call per clue. Revisit only if measured per-request latency, rather than quota, dominates wall time.
 - Does the inference log need rotation or compaction? v1 says no; revisit once a full bench matrix has been run and the daily file sizes are known.
+- Which rate-limit headers does Nebius actually send, and is the limit a per-second bucket or a per-minute window?
+- What is the batch-size crossover on Nemotron-3_5-Lightning?
