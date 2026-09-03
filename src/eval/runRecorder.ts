@@ -9,6 +9,7 @@ import type { Profile, ProfileSource } from '../profiles/schema.js';
 import { atomicWriteFile, repoRoot, resolveRunsDir } from '../util/fs.js';
 import { readGitCommit } from '../util/git.js';
 import { canonicalJson, sha1 } from '../util/hash.js';
+import { log } from '../util/log.js';
 import type { Accuracy, PerSlotRecord, ProducedByTier, RunRecord, RunStatus, TierCallStats } from './types.js';
 
 export interface RunIdInput {
@@ -73,7 +74,7 @@ export interface RunRecorderOptions {
   now?: () => Date;
   /** Defaults to `runs/<runId>.json`. */
   out?: string;
-  /** Upserts `puzzles/index.json` on `run:end`; omitted (or `false`) skips it, which is what tests do. */
+  /** Upserts `puzzles/index.json` on `run:end`; omitted (or `false`) skips it. */
   updateIndex?: false | RunRecorderIndexUpdate;
 }
 
@@ -81,8 +82,58 @@ export interface RunRecorder {
   handler: EventHandler;
   /** The record accumulated so far. */
   record(): RunRecord;
-  /** Resolves once `run:end` has been written out. */
+  /**
+   * Resolves with the record's path once `run:end` has been written out.
+   *
+   * Rejects with `IndexUpsertError` when the record was written but the
+   * injected `updateIndex.upsertIndexRow` failed - the record is still on
+   * disk at `error.recordPath` in that case. Rejects with the underlying
+   * error when the record write itself failed, and when it is called before
+   * `run:end` has been seen.
+   */
   written(): Promise<string>;
+}
+
+/**
+ * Renders an unknown thrown value as a one-line message.
+ *
+ * The index writer is injected, so what it rejects with is not this module's
+ * to assume: an `Error`, a string and a plain object all have to read
+ * sensibly when they end up inside `IndexUpsertError`'s message.
+ */
+function describeCause(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  if (typeof cause === 'string') return cause;
+  return JSON.stringify(cause) ?? 'unknown error';
+}
+
+/**
+ * Rejects `written()` when the run record itself was written but the
+ * `puzzles/index.json` upsert that follows it failed.
+ *
+ * The expected cause is the index writer's `puzzles/.index.lock` timeout
+ * (spec "Library layout": 5 s, "then a clear error"), which is exactly what
+ * `bench` at concurrency 2 or more produces. The record is already durable
+ * at `recordPath` when this is thrown, so a caller can report the missing
+ * index row without discarding the run - but it is never swallowed, because
+ * a silently dropped row is the failure mode the lock exists to prevent.
+ */
+export class IndexUpsertError extends Error {
+  /** Path of the run record that was written before the upsert failed. */
+  readonly recordPath: string;
+
+  /** The sanitised puzzle id whose `puzzles/index.json` row was not written. */
+  readonly puzzleId: string;
+
+  constructor(recordPath: string, puzzleId: string, cause: unknown) {
+    super(
+      `run record written to ${recordPath}, but the puzzles/index.json upsert for puzzle "${puzzleId}" failed: ${describeCause(cause)}`,
+      { cause },
+    );
+    this.name = 'IndexUpsertError';
+    this.recordPath = recordPath;
+    this.puzzleId = puzzleId;
+  }
 }
 
 const SAFE_ID_CHAR = /[^A-Za-z0-9._-]/g;
@@ -394,12 +445,15 @@ export function createRunRecorder(opts: RunRecorderOptions): RunRecorder {
             : record.accuracy.letters,
         lastRunAt: record.timestamp,
       };
-      // An index-upsert failure must not lose the run record that was just
-      // written; the write above already succeeded and is the durable copy.
       try {
         await update.upsertIndexRow(row);
-      } catch {
-        // Swallowed deliberately: see the comment above.
+      } catch (cause) {
+        // The record written above is the durable copy and stays on disk, so
+        // the failure must not discard it - but it must not vanish either:
+        // an index-lock timeout would otherwise lose the puzzles/index.json
+        // row with no trace anywhere. Surface it through `written()`, naming
+        // the record that did survive.
+        throw new IndexUpsertError(path, row.id, cause);
       }
     }
 
@@ -407,6 +461,7 @@ export function createRunRecorder(opts: RunRecorderOptions): RunRecorder {
   }
 
   let writtenPromise: Promise<string> | null = null;
+  let writtenConsumed = false;
 
   const handler: EventHandler = (event: SolverEvent) => {
     switch (event.type) {
@@ -548,6 +603,13 @@ export function createRunRecorder(opts: RunRecorderOptions): RunRecorder {
         if (ended) break;
         ended = true;
         writtenPromise = writeRecord();
+        // `written()` is where a caller is meant to see a failure. One that
+        // never calls it would otherwise get an unhandled rejection (or, on
+        // a process that installs a handler for those, nothing at all), so
+        // report the message on stderr exactly once instead.
+        void writtenPromise.catch((cause: unknown) => {
+          if (!writtenConsumed) log.error(describeCause(cause));
+        });
         break;
       }
       default:
@@ -559,6 +621,7 @@ export function createRunRecorder(opts: RunRecorderOptions): RunRecorder {
     handler,
     record: buildRecord,
     written: () => {
+      writtenConsumed = true;
       if (writtenPromise === null) {
         writtenPromise = Promise.reject(
           new Error(`RunRecorder.written() called before 'run:end' for ${runId}`),

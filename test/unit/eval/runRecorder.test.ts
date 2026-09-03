@@ -11,10 +11,17 @@ import type { AnySchemaObject } from 'ajv/dist/2020.js';
 // mirroring test/contract/schemas.test.ts.
 import * as ajvFormatsModule from 'ajv-formats';
 import type { FormatsPlugin } from 'ajv-formats';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { EventBase, SolverEvent } from '../../../src/events/types.js';
-import { createRunRecorder, makeRunId, type RunIdInput } from '../../../src/eval/runRecorder.js';
+import {
+  createRunRecorder,
+  IndexUpsertError,
+  makeRunId,
+  type RunIdInput,
+} from '../../../src/eval/runRecorder.js';
+import type { PuzzleIndexRow } from '../../../src/puzzle/types.js';
+import { getLogLevel, setLogLevel } from '../../../src/util/log.js';
 import { readGitCommit } from '../../../src/util/git.js';
 import { ProfileSchema } from '../../../src/profiles/schema.js';
 
@@ -554,5 +561,163 @@ describe('createRunRecorder', () => {
     const record = recorder.record();
     expect(record.puzzle.id).toBe('guardian-27000');
     expect(record.runId).toMatch(/^guardian-27000--[A-Za-z0-9._-]+--\d{8}T\d{6}Z--[0-9a-f]{8}$/);
+  });
+});
+
+describe('createRunRecorder index upsert', () => {
+  /**
+   * The `updateIndex` half of `RunRecorderIndexUpdate`: everything
+   * `puzzles/index.json` needs that a `RunRecord` does not already carry.
+   * `upsertIndexRow` is supplied per test, since what it does with the row -
+   * record it, or reject - is what each of these tests is about.
+   */
+  function indexFields() {
+    return {
+      date: '2026-09-01',
+      title: 'Synthetic 5x5',
+      width: 5,
+      height: 5,
+      files: { original: 'puzzles/synthetic-5x5/original.puz', normalised: 'puzzles/synthetic-5x5/normalised.json' },
+      parsedBy: '@xwordly/xword-parser' as const,
+    };
+  }
+
+  /** The full run with its final accuracy replaced, for the "previous row wins" case. */
+  function eventsScoring(letters: number): SolverEvent[] {
+    return fullRunEvents().map((event) =>
+      event.type === 'score:final'
+        ? { ...event, accuracy: { letters, words: letters, perfect: false, emptyCells: 2 } }
+        : event,
+    );
+  }
+
+  it('upserts a puzzles/index.json row built from the record and the injected fields', async () => {
+    const rows: PuzzleIndexRow[] = [];
+    const recorder = createRunRecorder({
+      ...baseRecorderOptions(),
+      updateIndex: {
+        ...indexFields(),
+        upsertIndexRow: (row: PuzzleIndexRow) => {
+          rows.push(row);
+          return Promise.resolve();
+        },
+      },
+    });
+    for (const event of fullRunEvents()) recorder.handler(event);
+    await recorder.written();
+
+    const stamp = recorder.record().timestamp;
+    expect(rows).toEqual([
+      {
+        id: 'synthetic-5x5',
+        source: 'synthetic',
+        date: '2026-09-01',
+        title: 'Synthetic 5x5',
+        style: 'american',
+        width: 5,
+        height: 5,
+        slotCount: 2,
+        files: {
+          original: 'puzzles/synthetic-5x5/original.puz',
+          normalised: 'puzzles/synthetic-5x5/normalised.json',
+        },
+        schemaVersion: 1,
+        parsedBy: '@xwordly/xword-parser',
+        addedAt: stamp,
+        bestLetterAccuracy: 1,
+        lastRunAt: stamp,
+      },
+    ]);
+  });
+
+  it('keeps the addedAt and the better letter accuracy from the previous row', async () => {
+    const previousRow: PuzzleIndexRow = {
+      ...indexFields(),
+      id: 'synthetic-5x5',
+      source: 'synthetic',
+      style: 'american',
+      slotCount: 2,
+      schemaVersion: 1,
+      addedAt: '2026-01-01T00:00:00.000Z',
+      bestLetterAccuracy: 0.9,
+      lastRunAt: '2026-01-01T00:00:00.000Z',
+    };
+    const rows: PuzzleIndexRow[] = [];
+    const recorder = createRunRecorder({
+      ...baseRecorderOptions(),
+      updateIndex: {
+        ...indexFields(),
+        previousRow,
+        upsertIndexRow: (row: PuzzleIndexRow) => {
+          rows.push(row);
+          return Promise.resolve();
+        },
+      },
+    });
+    for (const event of eventsScoring(0.5)) recorder.handler(event);
+    await recorder.written();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.addedAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(rows[0]?.bestLetterAccuracy).toBe(0.9);
+    expect(rows[0]?.lastRunAt).toBe(recorder.record().timestamp);
+  });
+
+  it('rejects written() with IndexUpsertError when the upsert fails, keeping the record on disk', async () => {
+    const out = join(tempDir(), 'out.json');
+    const lockTimeout = new Error('puzzles/.index.lock: timed out after 5000ms');
+    const recorder = createRunRecorder({
+      ...baseRecorderOptions(),
+      out,
+      updateIndex: {
+        ...indexFields(),
+        upsertIndexRow: () => Promise.reject(lockTimeout),
+      },
+    });
+    for (const event of fullRunEvents()) recorder.handler(event);
+
+    const error = await recorder.written().then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(IndexUpsertError);
+    const upsertError = error as IndexUpsertError;
+    expect(upsertError.recordPath).toBe(out);
+    expect(upsertError.puzzleId).toBe('synthetic-5x5');
+    expect(upsertError.cause).toBe(lockTimeout);
+    expect(upsertError.message).toContain(out);
+    expect(upsertError.message).toContain('puzzles/.index.lock: timed out after 5000ms');
+
+    // The record itself is the durable copy and must survive the failure.
+    const onDisk = JSON.parse(readFileSync(out, 'utf8')) as { runId: string };
+    expect(onDisk.runId).toBe(recorder.record().runId);
+  });
+
+  it('reports the upsert failure on stderr when nobody calls written()', async () => {
+    const out = join(tempDir(), 'out.json');
+    const previousLevel = getLogLevel();
+    setLogLevel('error');
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const recorder = createRunRecorder({
+        ...baseRecorderOptions(),
+        out,
+        updateIndex: {
+          ...indexFields(),
+          upsertIndexRow: () => Promise.reject(new Error('index locked')),
+        },
+      });
+      for (const event of fullRunEvents()) recorder.handler(event);
+
+      await vi.waitFor(() => {
+        expect(stderr).toHaveBeenCalled();
+      });
+      const lines = stderr.mock.calls.map((call) => String(call[0])).join('');
+      expect(lines).toContain('index locked');
+      expect(lines).toContain(out);
+    } finally {
+      stderr.mockRestore();
+      setLogLevel(previousLevel);
+    }
   });
 });
