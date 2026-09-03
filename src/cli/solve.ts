@@ -54,6 +54,22 @@ export interface SolveCommandOverrides {
   puzzlesDir?: string;
   cacheDir?: string;
   inferenceLogDir?: string;
+  /**
+   * The word list `src/solver/repair.ts` gates and fills with (T43, B35).
+   *
+   * Without this, `openWordList` falls back to `data/wordlist/collaborative.txt`,
+   * which is `.gitignore`d, downloaded by `npm run wordlist:fetch` from the
+   * *moving* head of an upstream repository, and therefore absent on a fresh
+   * checkout and different in content between two machines that fetched it on
+   * different days. It is a legitimate ambient input for a real `xw solve`,
+   * but it is the one input of an `--offline` replay that the committed cache
+   * does not pin, and the repair pass's plausibility gate, its distance-2
+   * neighbour enumeration and its final empty-slot fill all read it - so a
+   * replay that leaves it ambient is not reproducible across machines.
+   * `scripts/fixtures-refresh.ts` and `test/integration/solve.test.ts` both
+   * pin the committed `test/fixtures/wordlist.txt` through this.
+   */
+  wordlistPath?: string;
   /** Where `--out`-less run records and `.events.jsonl` traces land. */
   runsDir?: string;
   env?: NodeJS.ProcessEnv;
@@ -362,7 +378,20 @@ export async function solveCommand(
   // -------------------------------------------------------------------------
   const grid = new Grid(puzzle);
   const domains = createDomainStore();
-  const budget = createBudgetTracker(resolveBudget(profile));
+  // B38/B49: an `--offline` replay of a committed cache has to produce the
+  // same record on a fast machine and on a loaded one. `wallMs` is the only
+  // cap whose "spend" is a clock reading rather than something this process
+  // counts, and T19 re-evaluates it on every charge, so leaving it capped
+  // makes `run:end`'s `ok`/`partial` status (and, through `budgetHit`, when a
+  // phase stops asking) a function of how busy the machine was. Offline there
+  // is nothing to time-box - no call leaves the process - so the cap is
+  // uncapped for the replay; `Infinity` is `policy/budget.ts`'s own spelling
+  // of "no limit was configured". Every other cap is untouched.
+  const offlineReplay = opts.offline || opts.offlineLenient;
+  const budget = createBudgetTracker({
+    ...resolveBudget(profile),
+    ...(offlineReplay ? { wallMs: Number.POSITIVE_INFINITY } : {}),
+  });
 
   const hooksOptions: SearchHooksDeps = {
     grid,
@@ -378,7 +407,7 @@ export async function solveCommand(
   if (puzzle.title !== undefined) hooksOptions.title = puzzle.title;
   const hooks = createSearchHooks(hooksOptions);
 
-  const wordList = openWordList(config.wordlistPath);
+  const wordList = openWordList(overrides.wordlistPath ?? config.wordlistPath);
 
   const deps: SolveOrchestrationDeps = {
     grid,

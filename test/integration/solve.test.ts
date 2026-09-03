@@ -35,14 +35,27 @@ import { repoRoot } from '../../src/util/fs.js';
  * "missing cache entry" test below always forces strict mode, since that is
  * what it is specifically proving.
  *
- * SEED and PER_PUZZLE_BUDGET_USD below must match the constants of the same
- * name in `scripts/fixtures-refresh.ts`: the search's tie-break/jitter PRNG
- * and the profile's effective budget both have to match the population run
- * bit for bit for the offline replay to reproduce the same snapshot.
+ * SEED, PER_PUZZLE_BUDGET_USD and WORDLIST_PATH below must match the
+ * constants of the same name in `scripts/fixtures-refresh.ts`: the search's
+ * tie-break/jitter PRNG, the profile's effective budget and the word list the
+ * repair pass gates and fills with all have to match the population run bit
+ * for bit for the offline replay to reproduce the same snapshot.
  */
 
 const ROOT = repoRoot();
 const CACHE_DIR = join(ROOT, 'test/fixtures/cache');
+/**
+ * The committed word list, pinned rather than left to default to
+ * `data/wordlist/collaborative.txt`. That file is `.gitignore`d, is downloaded
+ * by `npm run wordlist:fetch` from the moving head of an upstream repository,
+ * and is therefore absent on a fresh checkout and different in content between
+ * two machines that fetched it on different days - while `src/solver/repair.ts`
+ * reads it for its plausibility gate, its distance-2 neighbour enumeration and
+ * its final empty-slot fill. Leaving it ambient made this suite pass in the
+ * worktree that had run `wordlist:fetch` and fail everywhere else, with slots
+ * the repair pass could no longer fill coming back `null`.
+ */
+const WORDLIST_PATH = join(ROOT, 'test/fixtures/wordlist.txt');
 const SEED = 42;
 const PER_PUZZLE_BUDGET_USD = 0.4;
 /** plan.md decision: the committed cache must stay under 20 MB. */
@@ -130,6 +143,7 @@ async function runOffline(
   const out = join(await freshTmpDir('solve-it-out-'), 'run.json');
   const overrides: SolveCommandOverrides = {
     cacheDir,
+    wordlistPath: WORDLIST_PATH,
     inferenceLogDir: await freshTmpDir('solve-it-inflog-'),
     // solveCommand builds the real Nebius transport unconditionally (only
     // the candidate service's --offline flag decides whether it is ever
@@ -269,6 +283,7 @@ describe('integration: xw solve --offline against the committed fixture cache', 
     const out = join(await freshTmpDir('solve-it-out-hit-'), 'run.json');
     const overrides: SolveCommandOverrides = {
       cacheDir,
+      wordlistPath: WORDLIST_PATH,
       inferenceLogDir,
       env: { NEBIUS_API_KEY: 'offline-test-placeholder-key' },
       isTty: false,

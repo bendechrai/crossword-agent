@@ -302,6 +302,15 @@ export async function solve(
     // The wall clock accrues on its own, so it is observed rather than
     // charged (T19); the observation also surfaces any other run-global cap
     // crossed since the last charge.
+    //
+    // B38/B49: this is the only reading of the wall clock in the pipeline that
+    // can reach an output field (a crossed `wallMs` sets `budgetHit`, which
+    // turns `run:end` from `ok` into `partial`), and T19 re-evaluates `wallMs`
+    // on *every* charge besides. Neither is disabled here: an offline replay
+    // instead gets an uncapped `wallMs` from the composition root
+    // (`src/cli/solve.ts`), which is the one place that knows the run is a
+    // replay. `progress` events still carry real elapsed times; they are
+    // reporting only and never feed a decision.
     noteCap(hooks.chargeBudget('wallMs', 0).exceeded);
     try {
       return await body();

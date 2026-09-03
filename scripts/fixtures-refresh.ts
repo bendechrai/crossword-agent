@@ -86,15 +86,51 @@ import { log, setLogLevel } from '../src/util/log.js';
  * honestly-measured snapshot via `--offline-lenient`.
  *
  * A fixed `--seed` (SEED below) is used for every solve here, and
- * `test/integration/solve.test.ts` passes the same seed and the same
- * per-fixture offline mode, so its replay reproduces this run's exact
- * snapshot.
+ * `test/integration/solve.test.ts` passes the same seed, the same word list
+ * and the same per-fixture offline mode, so its replay reproduces this run's
+ * exact snapshot.
+ *
+ * Why the word list is pinned (WORDLIST_PATH below). `src/solver/repair.ts`
+ * reads a word list for its plausibility gate, its distance-2 neighbour
+ * enumeration and its final empty-slot fill, and by default that word list is
+ * `data/wordlist/collaborative.txt`: `.gitignore`d, downloaded by `npm run
+ * wordlist:fetch` from the *moving* head of an upstream repository, hence
+ * absent on a fresh checkout and different in content between two machines
+ * that fetched it on different days. It was the one input of an `--offline`
+ * replay that the committed cache did not pin, and it is why the integration
+ * suite passed in the worktree that had fetched it and failed on main, with
+ * slots the repair pass could no longer fill coming back `null`. Both this
+ * script and the integration test now pin the committed
+ * `test/fixtures/wordlist.txt` through `SolveCommandOverrides.wordlistPath`.
+ *
+ * What "deterministic" does and does not cover. Two offline replays of the
+ * same cache agree on every field that records a decision - the fill, the
+ * accuracy block, the per-slot answers, the search and repair counters, and
+ * which budget caps were hit. They do not agree on the fields that are
+ * measurements of the run itself: `runId`, `timestamp`, `wallMs`,
+ * `latencyMs` and `budgetHits[].atMs` are elapsed times and identifiers, they
+ * feed no decision, and `test/integration/solve.test.ts` accordingly asserts
+ * the accuracy block and the per-slot answers rather than the whole file.
+ * `src/cli/solve.ts` uncaps `wallMs` for an offline replay so that no
+ * decision can turn on one of these readings.
+ *
+ * Regenerating the snapshots without spending anything: set
+ * `FIXTURES_REFRESH_OFFLINE_ONLY=1`. That skips the live pass entirely (and
+ * the `NEBIUS_API_KEY` requirement with it) and re-captures every snapshot and
+ * bound from the already-committed cache, which is exactly what is wanted
+ * after a change that alters the deterministic replay path but not the set of
+ * requests the cache has to answer. `usdBilled` is 0 for every fixture in that
+ * mode, so the running spend total stays at 0.
  */
 
 const SEED = 42;
 /** Matches the orchestrator note, not the spec's `bench --max-usd` default of 25. */
 const PER_PUZZLE_BUDGET_USD = 0.4;
 const TOTAL_BUDGET_USD = 3;
+/** Relative to the repo root; see the module doc comment for why this is pinned. */
+const WORDLIST_PATH = 'test/fixtures/wordlist.txt';
+/** Never sent anywhere: an offline pass makes no call at all (see `attemptSolve`). */
+const OFFLINE_PLACEHOLDER_KEY = 'offline-replay-placeholder-key';
 
 interface FixtureSpec {
   id: string;
@@ -176,7 +212,24 @@ async function attemptSolve(
   out: string,
   mode: 'live' | OfflineMode,
 ): Promise<{ record: RunRecord } | { miss: string }> {
-  const overrides: SolveCommandOverrides = { cacheDir, env: process.env, isTty: false };
+  const overrides: SolveCommandOverrides = {
+    cacheDir,
+    // The live pass and the offline verification pass must see the same word
+    // list, or the cache is populated for one repair path and replayed on
+    // another; see the module doc comment.
+    wordlistPath: join(repoRoot(), WORDLIST_PATH),
+    // `solveCommand` builds the Nebius transport unconditionally (only the
+    // candidate service's offline flag decides whether it is ever called), so
+    // construction still needs *a* key. An offline pass therefore gets a
+    // placeholder when the environment has none, which is what lets
+    // FIXTURES_REFRESH_OFFLINE_ONLY run with no credential at all; a live pass
+    // gets the real environment and nothing else.
+    env:
+      mode === 'live'
+        ? process.env
+        : { ...process.env, NEBIUS_API_KEY: process.env.NEBIUS_API_KEY ?? OFFLINE_PLACEHOLDER_KEY },
+    isTty: false,
+  };
   if (puzzlesDir !== undefined) overrides.puzzlesDir = puzzlesDir;
 
   const cliOptions: SolveCliOptions = {
@@ -217,6 +270,7 @@ async function refreshOne(
   fixture: FixtureSpec,
   root: string,
   cacheDir: string,
+  offlineOnly: boolean,
 ): Promise<{
   accuracy: RunRecord['accuracy'];
   status: RunRecord['status'];
@@ -229,12 +283,15 @@ async function refreshOne(
 
   const { target, puzzlesDir } = await resolveTarget(fixture, root);
 
-  const live = await attemptSolve(target, puzzlesDir, cacheDir, liveOut, 'live');
-  if (!('record' in live)) {
-    throw new Error(`fixtures-refresh: "${fixture.id}": a live (non-offline) solve reported an offline miss - unreachable`);
+  let usdBilled = 0;
+  if (!offlineOnly) {
+    const live = await attemptSolve(target, puzzlesDir, cacheDir, liveOut, 'live');
+    if (!('record' in live)) {
+      throw new Error(`fixtures-refresh: "${fixture.id}": a live (non-offline) solve reported an offline miss - unreachable`);
+    }
+    usdBilled = live.record.calls.tier1.usdBilled + live.record.calls.tier2.usdBilled;
+    await rm(liveOut, { force: true });
   }
-  const usdBilled = live.record.calls.tier1.usdBilled + live.record.calls.tier2.usdBilled;
-  await rm(liveOut, { force: true });
 
   let verified: RunRecord;
   let offlineMode: OfflineMode;
@@ -266,10 +323,20 @@ async function refreshOne(
 async function main(): Promise<void> {
   setLogLevel('info');
 
-  if (process.env.NEBIUS_API_KEY === undefined || process.env.NEBIUS_API_KEY.trim() === '') {
+  // See the module doc comment: the offline-only mode re-captures snapshots
+  // and bounds from the already-committed cache and never calls a provider,
+  // so it neither needs a key nor is allowed to be blocked by the absence of
+  // one.
+  const offlineOnly = (process.env.FIXTURES_REFRESH_OFFLINE_ONLY ?? '').trim() !== '';
+
+  if (
+    !offlineOnly &&
+    (process.env.NEBIUS_API_KEY === undefined || process.env.NEBIUS_API_KEY.trim() === '')
+  ) {
     throw new Error(
       'fixtures-refresh: NEBIUS_API_KEY is not set. This is a NETWORK task (T50) and refuses to ' +
-        'fabricate cache entries; set NEBIUS_API_KEY (see .env.example) and rerun.',
+        'fabricate cache entries; set NEBIUS_API_KEY (see .env.example) and rerun, or set ' +
+        'FIXTURES_REFRESH_OFFLINE_ONLY=1 to re-capture snapshots from the committed cache alone.',
     );
   }
 
@@ -288,8 +355,14 @@ async function main(): Promise<void> {
   log.info(
     `fixtures-refresh: solving ${String(selected.length)} fixtures under the "baseline" profile, ` +
       `budget-usd ${String(PER_PUZZLE_BUDGET_USD)}/puzzle, total cap ${String(TOTAL_BUDGET_USD)} USD. ` +
-      `Cache dir: ${cacheDir}`,
+      `Cache dir: ${cacheDir}. Word list: ${WORDLIST_PATH}`,
   );
+  if (offlineOnly) {
+    log.info(
+      'fixtures-refresh: FIXTURES_REFRESH_OFFLINE_ONLY is set - no live pass, no provider call and ' +
+        'no spend; snapshots and bounds are re-captured from the committed cache alone.',
+    );
+  }
   log.warn(
     'fixtures-refresh: promptVersion is frozen at "1" for v1 (B49) - a future bump invalidates ' +
       'every entry in this cache and must land with a regenerated cache in the same commit.',
@@ -314,7 +387,12 @@ async function main(): Promise<void> {
     }
 
     log.info(`fixtures-refresh: solving "${fixture.id}"...`);
-    const { accuracy, status, usdBilled, offlineMode } = await refreshOne(fixture, root, cacheDir);
+    const { accuracy, status, usdBilled, offlineMode } = await refreshOne(
+      fixture,
+      root,
+      cacheDir,
+      offlineOnly,
+    );
     totalUsdBilled += usdBilled;
 
     const minLetters = Math.max(accuracy.letters - 0.05, 0.1);
