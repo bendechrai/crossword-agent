@@ -40,6 +40,8 @@ This returned HTTP 200, and the subagent validated and pretty-printed the result
 
 9. **Chose the stack and started model selection.** I decided the solver will be written in Node.js. I had docs/model-selection.md generated from models.json with a script rather than by hand, so the numbers are exact: a table of the text-capable models with context, quantisation, prices per 1M tokens, rate limits, and reasoning/structured-output flags. From that I shortlisted three cheap models for a first pass - nvidia/Nemotron-3_5-Lightning, nvidia/Nemotron-3-Nano-Omni, and deepseek-ai/DeepSeek-V4-Flash-0731 - and three stronger ones - deepseek-ai/DeepSeek-V4-Pro, Qwen/Qwen3.5-397B-A17B, and zai-org/GLM-5.1 - weighting requests-per-minute heavily because a crossword solver makes many short calls.
 
+10. **Picked the two-tier model strategy.** I settled on a simple escalation: every clue goes to nvidia/Nemotron-3_5-Lightning first, and only clues it gets wrong are escalated to deepseek-ai/DeepSeek-V4-Pro. Most clues in a standard crossword are easy, so the cheap model should handle the bulk and the expensive one only pays for the hard tail. Recorded in docs/model-selection.md.
+
 ## Current state
 
 Main is pushed to the public remote at https://github.com/bendechrai/crossword-agent. The repo contains:

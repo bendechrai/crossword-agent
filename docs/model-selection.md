@@ -61,6 +61,10 @@ A crossword solver issues many short requests - one or a few per clue, plus re-t
 
 `moonshotai/Kimi-K3` is a premium option held in reserve: its output price (15.00) is roughly 3x to 4x that of the three picks above, so it is worth benchmarking but not a default choice. `NousResearch/Hermes-4-405B` (120 RPM) and `nvidia/Nemotron-3-Ultra-550b-a55b` (300 RPM) were passed over for low RPM relative to the picks above.
 
+## Decision
+
+Every clue is routed first to `nvidia/Nemotron-3_5-Lightning` (output $0.24 per 1M tokens) with its high rate limits (400,000 TPM, 600 RPM). If that model fails - defined as returning no answer, an answer of the wrong length, or an answer conflicting with letters fixed by crossing entries - the clue escalates to `deepseek-ai/DeepSeek-V4-Pro` (output $3.50 per 1M tokens, structured output support, 1,000,000 TPM, 3,000 RPM). This two-tier approach leverages the cheap model's high throughput to solve the bulk of clues, while paying for the expensive model only on the hard tail. The other four shortlisted models remain documented as fallbacks and benchmark comparators.
+
 ## Next step
 
-Run the same small clue benchmark against all six shortlisted models (the three cheap-pass and three stronger candidates) and compare accuracy and cost per solved clue before committing to a default model for the solver.
+The benchmark across all six shortlisted models remains worth running to validate the escalation strategy, measuring accuracy and cost per solved clue.
