@@ -42,6 +42,8 @@ This returned HTTP 200, and the subagent validated and pretty-printed the result
 
 10. **Picked the two-tier model strategy.** I settled on a simple escalation: every clue goes to nvidia/Nemotron-3_5-Lightning first, and only clues it gets wrong are escalated to deepseek-ai/DeepSeek-V4-Pro. Most clues in a standard crossword are easy, so the cheap model should handle the bulk and the expensive one only pays for the hard tail. Recorded in docs/model-selection.md.
 
+11. **Surveyed crossword puzzle sources.** I had a subagent with web access research where to get crossword puzzles in machine-readable formats, fetching every URL it cited so nothing in the doc is guessed. docs/crossword-sources.md covers the four common file formats (.puz, .ipuz, .jpz, .xd), the npm parsers for them, and thirteen puzzle and clue sources with their variety, volume, and licensing caveats. The top three by variety came out as Saul Pwanson's xd corpus for American puzzles, the Guardian's unofficial JSON endpoint for British cryptics, and the xword-dl scraper as a meta-source across publishers. The plan is to use the licence-clean public data (the pre-1965 xd slice and open clue datasets) for bulk benchmarking and the Guardian cryptics for spot-testing.
+
 ## Current state
 
 Main is pushed to the public remote at https://github.com/bendechrai/crossword-agent. The repo contains:
@@ -50,4 +52,5 @@ Main is pushed to the public remote at https://github.com/bendechrai/crossword-a
 - `LICENSE` - MIT License, copyright 2026 Ben Dechrai
 - `models.json` - the fetched Nebius Token Factory model catalogue
 - `docs/model-selection.md` - model shortlist and reasoning for the Nebius catalogue
+- `docs/crossword-sources.md` - sources of machine-readable crossword puzzles, file formats, and npm parsers; top three by variety
 - `DIARY.md` - this file
