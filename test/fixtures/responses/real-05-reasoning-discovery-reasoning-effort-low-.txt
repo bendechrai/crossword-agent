@@ -1,0 +1,25 @@
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Style: American-style crossword
+   - Clue: "discovery#1: Large striped Asian big cat"
+   - Length: 5 letters when run together
+   - Give up to 10 candidate answers, best first
+   - Output format: JSON with `clue_understood`, `candidates` array, optional `notes`
+   - Answers: uppercase, run together, no spaces/punctuation/accents, exactly the number of letters asked
+
+2.  **Parse the Clue:**
+   - "Large striped Asian big cat"
+   - This is a definition-style clue (typical of American crosswords)
+   - The animal described: large, striped, Asian, big cat
+   - The most famous striped Asian big cat is the tiger
+   - Tiger in uppercase, run together: TIGER
+   - Length: 5 letters. T-I-G-E-R = 5 letters. Perfect match.
+
+3.  **Check Constraints:**
+   - Must be exactly 5 letters when run together
+   - TIGER fits perfectly
+   - No other striped Asian big cat comes to mind that's 5 letters. Leopard? Not striped. Jaguar? Not Asian. Cheetah? Not striped in the same way, and not typically "Asian big cat". Panther? Not striped. So TIGER is the clear answer.
+
+   - Could there be other interpretations? Maybe "Siberian tiger" but that's more letters. The clue says "Large striped Asian big cat" -> TIGER is 5 letters.
+   - The output should have up to 10 candidates, but TIGER should be confidence 1.0 or very high. I'll put TIGER as the top candidate, and maybe include a few others just in case, but they'd be much lower confidence. However, the instruction says "Give up to 10 candidate answers for discovery#1, best first." I should probably just give TIGER as the primary, and maybe a couple of alternatives if any, but realistically TIGER is the only one. I'll give 1 candidate with confidence 1.0, or maybe up to 3 as per the example, but it says up to 10. I'll just give TIGER with high confidence, and maybe list a couple of others with

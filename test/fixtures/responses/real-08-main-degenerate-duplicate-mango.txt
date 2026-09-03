@@ -1,0 +1,45 @@
+{
+  "clue_understood": 0.95,
+  "candidates": [
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    },
+    {
+      "answer": "MANGO",
+      "confidence": 0.98
+    }
+  ]
+}

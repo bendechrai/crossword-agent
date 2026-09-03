@@ -1,0 +1,26 @@
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Style: American-style crossword
+   - Clue: "discovery#1: Large striped Asian big cat"
+   - Length: 5 letters when run together
+   - Requirement: Give up to 10 candidate answers, best first
+   - Output format: JSON with `clue_understood`, `candidates` array, optional `notes`
+   - Answers must be uppercase, run together, no spaces/punctuation/accents
+   - Each answer has exactly the number of letters asked for (5 letters)
+
+2.  **Parse the Clue:**
+   - "Large striped Asian big cat"
+   - This is a definition-style clue (typical of American crosswords)
+   - The animal described: large, striped, Asian, big cat
+   - The most famous striped Asian big cat is the tiger
+   - Tiger = 5 letters when run together? Wait, "TIGER" is 5 letters. Yes.
+   - Are there other striped Asian big cats? Leopard? No, leopards have rosettes, not stripes. Cheetah? Not typically "striped", and not primarily Asian (some in Asia, but not the classic striped one). Jaguar? Has rosettes, not stripes, and primarily South America. Snow leopard? Not typically described as "striped". 
+   - So "TIGER" is the prime candidate.
+   - Length: 5 letters. Matches.
+   - "when run together" means just the letters, no spaces. "TIGER" is 5 letters.
+
+   Let's double-check if there are any other possibilities or wordplay. "Large striped Asian big cat" - could it be "AMUR" (Amur tiger/leopard)? But that's 4 letters. "Siberian"? No. "Bengal"? 6 letters. "Sumatran"? Too long. "Indochinese"? Too long. "Malayan"? Too long. "Tiger" is the most straightforward.
+
+   Could it be a phrase? "BIGCAT" is 6 letters. "STRIPED" is 7. "ASIAN" is 5 but not a big cat. "LEOPARD" is 7. "JAGUAR" is 6. "CHEETAH" is 7.
+

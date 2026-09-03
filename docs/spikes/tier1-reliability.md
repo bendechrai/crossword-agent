@@ -1,0 +1,168 @@
+# M2 spike: tier-1 reliability (T49)
+
+Run window: 2026-09-03T11:59:27.669Z to 2026-09-03T12:03:10.145Z. Model under test: `nvidia/Nemotron-3_5-Lightning` (tier 1). All numbers below come from a real run against the live Nebius Token Factory API, through the real `src/llm/client.ts` transport and the real inference log at `logs/inference/` (not committed, per B47); this document is a query over that log plus the parser (`src/llm/parser.ts`) run against each captured response.
+
+Total spend: **USD 0.0199** (0.0192 from the run below, plus ~0.0007 for the one follow-up call described in section 2; budget cap was USD 0.50).
+
+## 1. Reasoning-off parameter
+
+Candidates were tried on the same clue ("Large striped Asian big cat", 5 letters) and compared by the `reasoningTokens` field the transport reads out of the usage blob (`completion_tokens_details.reasoning_tokens`).
+
+| Candidate | Outcome | reasoningTokens | completionTokens | latencyMs |
+| --- | --- | ---: | ---: | ---: |
+| control (no extra param) | accepted | 512 | 1024 | 2336 |
+| shipped placeholder reasoning_effort=true | rejected: Nebius transport: nvidia/Nemotron-3_5-Lightning returned HTTP 422: HTTP 422 | - | - | - |
+| reasoning_effort="none" | accepted | 0 | 73 | 782 |
+| reasoning_effort="low" | accepted | 512 | 1024 | 2243 |
+| chat_template_kwargs.thinking=false | accepted | 512 | 1024 | 2902 |
+| chat_template_kwargs.enable_thinking=false | accepted | 0 | 73 | 569 |
+| enable_thinking=false (top level) | accepted | 512 | 1024 | 2407 |
+| reasoning={"effort":"low"} | accepted | 512 | 1024 | 2367 |
+
+**Finding: the parameter is `reasoning_effort`, and the value that turns reasoning off is the string `"none"`.** `{"reasoning_effort":"none"}` reduced `reasoningTokens` from 512 (control) to 0, and cut `completionTokens` from 1024 to 73 and latency from ~2.3s to ~0.8s in the same trial. This is confirmed twice over: empirically by the `reasoningTokens` comparison in the table above, and independently by Nebius's own request-validation error. The rejected placeholder call (`reasoning_effort: true`, a boolean) came back HTTP 422 with a body naming the accepted values verbatim:
+
+```json
+{"type":"literal_error","loc":["body","reasoning_effort","literal['none','minimal','low','medium','high','xhigh']"],
+ "msg":"Input should be 'none', 'minimal', 'low', 'medium', 'high' or 'xhigh'","input":true}
+```
+
+(a second `literal['max']` error is also present - Nebius validates `reasoning_effort` against two literal unions and reports both misses). So the full accepted value set is `"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`, and `"none"` is the one that measurably disables reasoning. `src/llm/tierRouter.ts` is updated to emit `{ reasoning_effort: 'none' }` in place of the `reasoning_effort: true` placeholder, gated the same way (only `purpose: "seed"` on a `reasoning`-capable model) - see the diff in that file for the exact change.
+
+## 2. Tier-2 `response_format.json_schema` wrapper shape
+
+| Shape | Outcome | Parsed OK |
+| --- | --- | --- |
+| current: response_format.json_schema = raw schema doc | rejected: HTTP 422 (`response_format.json_schema.name`: "Field required", plus the same `reasoning_effort` error as above) | - |
+| wrapped: response_format.json_schema = { name, schema, strict } | rejected: HTTP 422 (`reasoning_effort` error only - no `json_schema`/`response_format` error of any kind) | - |
+
+Both of these two trials also carried the broken `reasoning_effort: true` placeholder (tier 2's `deepseek-ai/DeepSeek-V4-Pro` advertises `reasoning` too, so `route()` sets it there as well), which confounded the result at the time: neither trial could reach a real completion. But the two 422 bodies are conclusive on their own, because Nebius's request validator reports **every** field error it finds in one pass, not just the first:
+
+- The current (unwrapped) shape's error list names `response_format.json_schema.name` as a missing required field, in addition to the `reasoning_effort` error. **Finding: Nebius requires `response_format.json_schema` to carry a `name`, i.e. it does not accept the raw schema document directly.**
+- The wrapped shape's error list contains only the `reasoning_effort` error - no complaint anywhere under `response_format` or `json_schema`. **Finding: `{ type: "json_schema", json_schema: { name, schema, strict } }` passes Nebius's request validation.**
+
+A follow-up call (same run, budget USD 0.0192 -> 0.0197) with both fixes applied together - `reasoning_effort: "none"` and the wrapped schema - confirmed this is not just request-validation-clean but produces a real, correctly-parsed completion:
+
+```
+HTTP 200. latencyMs=1272 usage={"promptTokens":292,"completionTokens":52,"totalTokens":344}
+text: {
+  "clue_understood": 1.0,
+  "candidates": [ { "answer": "ICE", "confidence": 1.0 } ],
+  "notes": "Direct definition."
+}
+parsed ok: true, failures: []
+```
+
+`src/llm/tierRouter.ts` is updated accordingly: `response_format.json_schema` is now `{ name: "candidate_response", schema: <the schema document>, strict: true }` instead of the raw schema document.
+
+## 3. Rate limit headers
+
+Every distinct response header name observed across all phases of this run (discovery, schema probe, burst probe, and the 200-clue measurement). Header names are as returned by `fetch`, lower-cased. Per the task note, only `x-ratelimit-*` and `retry-after` carry an example value here; every other header is confirmed present but its value is not reproduced.
+
+| Header | Rate-limit header? | Example value |
+| --- | --- | --- |
+| `access-control-allow-credentials` | no | (not recorded) |
+| `access-control-allow-origin` | no | (not recorded) |
+| `connection` | no | (not recorded) |
+| `content-encoding` | no | (not recorded) |
+| `content-type` | no | (not recorded) |
+| `date` | no | (not recorded) |
+| `strict-transport-security` | no | (not recorded) |
+| `transfer-encoding` | no | (not recorded) |
+| `vary` | no | (not recorded) |
+| `x-inference-id` | no | (not recorded) |
+| `x-ratelimit-dynamic-period-remaining` | yes | 900s / 881s / 880s |
+| `x-ratelimit-dynamic-period-usage-requests` | yes | 0% / 1% / 2% |
+| `x-ratelimit-dynamic-period-usage-tokens` | yes | 0% / 1% / 2% |
+| `x-ratelimit-dynamic-scale-requests` | yes | 1.00 |
+| `x-ratelimit-dynamic-scale-tokens` | yes | 1.00 |
+| `x-ratelimit-limit-requests` | yes | 600 |
+| `x-ratelimit-limit-tokens` | yes | 400000 |
+| `x-ratelimit-remaining-requests` | yes | 599 / 594 / 595 |
+| `x-ratelimit-remaining-tokens` | yes | 398834 / 399984 / 399957 |
+| `x-ratelimit-reset-requests` | yes | 1s / 2s |
+| `x-ratelimit-reset-tokens` | yes | 1s |
+| `x-request-id` | no | (not recorded) |
+
+**Finding: Nebius sends `x-ratelimit-dynamic-period-remaining`, `x-ratelimit-dynamic-period-usage-requests`, `x-ratelimit-dynamic-period-usage-tokens`, `x-ratelimit-dynamic-scale-requests`, `x-ratelimit-dynamic-scale-tokens`, `x-ratelimit-limit-requests`, `x-ratelimit-limit-tokens`, `x-ratelimit-remaining-requests`, `x-ratelimit-remaining-tokens`, `x-ratelimit-reset-requests`, `x-ratelimit-reset-tokens`.**
+
+## 4. Per-second bucket or per-minute window?
+
+A raw HTTP burst of 20 concurrent requests (bypassing the client-side rate limiter entirely, i.e. no `acquire()` gating) was fired at tier 1 to see how the server reacts to an instantaneous burst rather than a sustained rate.
+
+| # | t (ms from burst start) | HTTP status |
+| ---: | ---: | ---: |
+| 0 | 898 | 200 |
+| 1 | 898 | 200 |
+| 2 | 898 | 200 |
+| 3 | 898 | 200 |
+| 4 | 898 | 200 |
+| 5 | 899 | 200 |
+| 6 | 899 | 200 |
+| 7 | 899 | 200 |
+| 8 | 899 | 200 |
+| 9 | 899 | 200 |
+| 10 | 899 | 200 |
+| 11 | 899 | 200 |
+| 12 | 899 | 200 |
+| 13 | 899 | 200 |
+| 14 | 899 | 200 |
+| 15 | 899 | 200 |
+| 16 | 899 | 200 |
+| 17 | 899 | 200 |
+| 18 | 899 | 200 |
+| 19 | 899 | 200 |
+
+**Finding: all 20 concurrent requests returned 200, none 429.** A 20-request instantaneous burst did not trip the limit, which is consistent with either a bucket sized well above 20 requests, or a window wide enough (per-minute, not per-second) that a single short burst does not exhaust it. This run cannot distinguish those two cases on its own; see the status-code table below (section 5) for the sustained-rate evidence from the 200-clue phase, which ran at roughly the client limiter's configured rate (9 rps) for tens of seconds without a 429, which is more informative about the window than a single burst.
+
+## 5. Tier-1 seed-pass reliability (n = 200)
+
+- Clue pool: 17 real clues from the committed xd fixtures (american stratum) plus 258 hand-authored clues (this task), mixed lengths (3-12 letters), deterministically shuffled and truncated to 200.
+- Calls attempted: 200. Transport-level failures (all retries exhausted, or a non-retryable HTTP status): 0 (0.0%).
+- **Parse-failure rate** (single-attempt, no retry - the parser could not produce a `CandidateResponse` for the slot at all): 0 / 200 = 0.0%.
+- **Length-error rate after normalisation, all candidates** (of every candidate answer returned across all successfully parsed responses, the fraction whose `normaliseAnswer()`'d length does not equal the requested slot length): 852 / 1276 = 66.8%.
+- **Length-error rate, top candidate only** (of the 200 responses, the fraction whose rank-0 candidate has the wrong length): 27 / 200 = 13.5%. This is a second query over the same captured raw text (`content`, i.e. `LlmResult.text`), not a re-measurement, and it is the more operationally relevant number: `validate/normalise.ts` drops wrong-length candidates one at a time rather than failing the whole response, so a batch of 10 that mostly misses only costs the search a smaller domain, not a dead slot, as long as the top one or two are usable.
+- **Latency** (successful calls, ms): mean 947, p50 1071, p95 1634.
+
+`clue_understood` histogram (over parsed responses):
+
+| Bucket | Count | Share |
+| --- | ---: | ---: |
+| [0.0, 0.2) | 0 | 0.0% |
+| [0.2, 0.4) | 0 | 0.0% |
+| [0.4, 0.6) | 0 | 0.0% |
+| [0.6, 0.8) | 0 | 0.0% |
+| [0.8, 1.0] | 200 | 100.0% |
+
+Two qualitative failure patterns showed up repeatedly while inspecting the raw candidate lists behind the numbers above (see section 6 for the actual saved responses):
+
+- **Tail candidates drift off-length.** Asked for "up to 10 candidates, best first" with only a length instruction (the seed prompt carries no pattern for a first ask - `?` for every cell), the model reliably gets candidate #1 right but candidates #3 onward are often synonyms or related words of whatever length occurs to it (`test/fixtures/responses/real-06-*`: clue "Gilled swimmer", asked for 4 letters, got `FISH` (correct) then `TROUT, SALMO, CARP, BREAM, PIKE, EEL, SHAD, STUR, GAR` - five of those nine are the wrong length, and `SALMO`/`STUR` look like truncation artifacts rather than real words). This is exactly what the all-candidates rate above is measuring, and it is consistent with `validate/normalise.ts` doing a per-candidate length check rather than trusting the count.
+- **Occasional degenerate duplicate lists.** A handful of responses repeated the same top answer ten times instead of offering nine different ones (`test/fixtures/responses/real-08-*`: clue "Sweet tropical stone fruit", ten `MANGO` entries at confidence 0.98). Every entry is individually well-formed (right length, valid confidence), so this costs nothing in the failure/length numbers above, but it means `candidatesPerAsk: 10` sometimes buys the search only one distinct answer instead of ten. `validate/normalise.ts`'s dedupe-by-answer step (spec: "Validation" step 4) already collapses these to one candidate with summed votes, so it is silently absorbed rather than surfaced - noted here since it was not otherwise visible in the pipeline's own metrics.
+
+HTTP status counts across every attempt in this run (from the inference log, i.e. including retried attempts):
+
+| Status | Attempts |
+| --- | ---: |
+| 200 | 207 |
+| 422 | 3 |
+
+## 6. Raw response samples
+
+9 real raw responses were harvested into `test/fixtures/responses/real-*.txt` (API key redacted, though the model never echoes it): `real-00` through `real-05` are the reasoning-off discovery trials (section 1) - six versions of the same clue, most showing the model's chain-of-thought text since reasoning was on for most of those trials; `real-06` through `real-08` are from the 200-clue main phase, chosen to show a clean single-answer reply, a reply with several wrong-length tail candidates, and the degenerate duplicate-candidate pattern, all described above. None of the 200 main-phase calls produced a genuinely malformed (unparseable) response in this run, so there is no `real-*` sample of that kind; if a later, larger run finds one, it belongs alongside these. These are evidence for this report, not parser test fixtures - T11 owns `test/fixtures/responses/*.txt` proper; the `real-` prefix keeps this run's samples from colliding with T11's hand-authored ones.
+
+## Recommendation
+
+**Tier-1 JSON reliability is acceptable for v1, conditional on the reasoning-off fix landing.** With `reasoning_effort: "none"` applied (as it now is in `src/llm/tierRouter.ts`, replacing the placeholder), parse-failure rate was 0.0% (0/200) and the top-candidate length-error rate was 13.5% (27/200) - both well inside what a single retry-at-temperature-0 (T34) and the existing per-candidate length/pattern validation (`validate/normalise.ts`) already absorb. `clue_understood` was pinned near 1.0 on every response in this run (see the histogram above), which is a separate, standing open question about calibration (see "Method notes" below) rather than a reliability problem.
+
+Two things are **not** acceptable as shipped and are addressed by this task's pre-authorised code changes:
+
+1. Without the fix, the router's placeholder (`reasoning_effort: true`) is not merely a no-op - Nebius rejects it outright with HTTP 422, and the natural default (no parameter at all) leaves reasoning *on*, which spent the model's entire `sampling.maxTokens: 512` completion budget on chain-of-thought in every trial that had it on (`completionTokens: 1024` = 512 raw completion + 512 reasoning, i.e. the raw completion also hit its own ceiling) with **no JSON answer left to emit** (see `real-00` through `real-05` for `reasoning_effort=true`/`low`/unset, none of which reach a `{`). At the shipped default, tier 1 would fail to parse on essentially every seed call. This is the headline finding of this spike.
+2. The all-candidates length-error rate (66.8%) means a profile or a future prompt change that trusts every one of the "up to `candidatesPerAsk`" candidates equally (rather than relying on `validate/normalise.ts`'s per-candidate filtering) would be measuring the wrong thing; a batch-size or candidatesPerAsk bench should watch the top-candidate rate, not the raw candidate count, as its quality signal.
+
+If a later, larger run (more than the 200 clues here) shows the top-candidate rate drifting materially above ~15%, that is the threshold at which tightening the seed prompt's length instruction or lowering `escalation.clueUnderstoodThreshold` (currently 0.4, and not exercised by this run - see below) would be the next thing to try.
+
+## Method notes and honesty caveats
+
+- Parse-failure and length-error rates are measured on a single attempt with no retry, so they are not directly the "tier-1 failure" rate the spec defines (which is after one retry at temperature 0); they are the raw first-attempt numbers a retry rate would be computed from.
+- The reasoning-off finding (section 1) and the schema-wrapper finding (section 2) are each based on very few calls (single-digit) because they are cheap to test and do not need statistical power - they are pass/fail checks against what the API accepts, not a rate measurement.
+- `n` in section 5 may be less than 200 if the USD budget was reached first; the report always states the actual `n` used.
+- `clue_understood` landed in `[0.8, 1.0]` for all 200 responses (section 5's histogram), which is not informative about calibration on its own: the clue pool (committed fixtures plus hand-authored one-line definitions, see section 5) is deliberately easy and unambiguous, with no crossing letters yet (a fresh seed pass), so a model reporting near-certainty on all of it is plausible rather than miscalibrated. The open question "how well calibrated is Nemotron's `clue_understood`?" needs a clue set with genuinely hard/ambiguous entries (cryptic-style wordplay, or clues with partially-filled patterns) to be answerable, which is out of scope for this spike's budget and clue pool.

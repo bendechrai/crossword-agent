@@ -1,0 +1,34 @@
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Style: American-style crossword
+   - Clue: "discovery#1: Large striped Asian big cat"
+   - Length: 5 letters when run together
+   - Requirement: Give up to 10 candidate answers, best first
+   - Output format: JSON with `clue_understood`, `candidates` array, optional `notes`
+   - Answers: uppercase, run together, no spaces/punctuation/accents, exactly the number of letters asked
+
+2.  **Parse the Clue:**
+   - "Large striped Asian big cat"
+   - This is a definition-style clue (typical of American crosswords)
+   - "Large striped Asian big cat" -> Tiger
+   - Tiger is 5 letters: T-I-G-E-R
+   - When run together: TIGER
+   - Matches "5 letters when run together"
+
+3.  **Check Constraints:**
+   - Must be exactly 5 letters when run together
+   - Tiger = 5 letters ✓
+   - No spaces, punctuation, accents ✓
+   - Uppercase, run together: TIGER ✓
+   - Up to 10 candidates, best first ✓
+
+4.  **Generate Candidates:**
+   - Primary answer: TIGER
+   - Are there other 5-letter Asian big cats with stripes? 
+     - Leopard? Not primarily striped, not Asian-specific, 6 letters
+     - Jaguar? 6 letters, not primarily Asian
+     - Puma? 4 letters, not striped
+     - Lynx? 4 letters, not striped
+     - Cat? 3 letters
+   - Maybe "TIGER" is the only one. But I can offer up to 10, best first. I'll just put TIGER as #1 with high confidence, and maybe some other plausible 5-letter answers that could fit "large striped Asian big cat" in a crossword sense, or just leave it as one candidate. The prompt says "Give up to 10 candidate answers for discovery#1, best first." I'll provide TIGER as the top, and maybe some others with lower confidence, or just TIGER and note that it's the only one. But to follow format, I'll output up to 10, but realistically only

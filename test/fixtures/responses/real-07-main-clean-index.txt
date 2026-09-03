@@ -1,0 +1,14 @@
+{
+  "clue_understood": 0.95,
+  "candidates": [
+    {
+      "answer": "INDEX",
+      "confidence": 0.98
+    },
+    {
+      "answer": "TABLE",
+      "confidence": 0.01
+    }
+  ],
+  "notes": "The clue 'Alphabetical list at the back of a book' is a standard definition for INDEX. TABLE is a secondary possibility but far less likely given the 'alphabetical' qualifier."
+}

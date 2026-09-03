@@ -1,0 +1,35 @@
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Style: American-style crossword
+   - Clue: "discovery#1: Large striped Asian big cat"
+   - Length: 5 letters when run together
+   - Requirement: Give up to 10 candidate answers, best first
+   - Output format: JSON with `clue_understood`, `candidates` array, optional `notes`
+   - Answers: uppercase, run together, no spaces/punctuation/accents, exactly the number of letters asked
+
+2.  **Deconstruct the Clue:**
+   - "Large striped Asian big cat"
+   - This is likely referring to a tiger. Tigers are large, striped, Asian big cats.
+   - Length: 5 letters when run together.
+   - "Tiger" is 5 letters: T-I-G-E-R -> TIGER
+   - Does any other 5-letter Asian big cat come to mind? Leopard? No, not typically "striped" in the same way, and not exclusively Asian. Jaguar? Not Asian. Cheetah? Not striped, and not typically "Asian big cat" as primary descriptor. Panther? Not specifically striped/Asian. 
+   - So "TIGER" fits perfectly: 5 letters, large, striped, Asian big cat.
+
+3.  **Check Constraints:**
+   - 5 letters when run together: TIGER = 5 letters ✓
+   - American-style crossword clues: definition-style, this is a straightforward definition ✓
+   - Answer format: uppercase, run together: TIGER ✓
+   - Up to 10 candidates, best first: I'll give TIGER as the top candidate, maybe some others just in case, but TIGER is almost certainly the answer.
+
+   Possible other 5-letter big cats? 
+   - LION is 4 letters
+   - TIGER is 5
+   - LEOPARD is 7
+   - JAGUAR is 6
+   - PANTHER is 7
+   - COUGAR is 6
+   - PUMA is 4
+   - So TIGER is the only common 5-letter "Asian big cat that is striped".
+
+   I could consider if "striped" might refer to something else, but in crossword context,
