@@ -26,6 +26,17 @@ export interface WatchRendererOptions {
    * can be asserted on as an array of strings ("Decisions baked in").
    */
   logUpdate?: (frame: string) => void;
+  /**
+   * T45: called by `finish()` once the live session is over, so the CLI can
+   * release `log-update`'s held-open frame (`logUpdate.done()`) before
+   * writing anything else to the stream - otherwise later output (the score
+   * and cost block, the next shell prompt) can overwrite or corrupt the last
+   * frame. Defaults to the real `log-update`'s own `done()`; tests inject a
+   * collector so the call can be asserted without a real frame ever having
+   * been drawn. A no-op in the B31 fallback branch, since no live frame was
+   * ever opened there.
+   */
+  done?: () => void;
   /** Where the B31 fallback's one explanatory line is written. Defaults to `process.stderr`. */
   stderr?: NodeJS.WritableStream;
   /** Where the B31 `ConsoleRenderer(0)` fallback writes. Defaults to `process.stdout`. */
@@ -111,6 +122,8 @@ function confidenceBand(paint: ChalkInstance, confidence: number, text: string):
  */
 export class WatchRenderer {
   private readonly draw: (frame: string) => void;
+  /** What `finish()` calls; null in the B31 fallback branch, where no live frame was ever opened. */
+  private readonly finishDraw: (() => void) | null;
   private readonly paint: ChalkInstance;
   private readonly columns: number;
   private readonly solution: ReadonlyArray<ReadonlyArray<string | null>> | null;
@@ -152,6 +165,7 @@ export class WatchRenderer {
 
     if (useWatch) {
       this.fallback = null;
+      this.finishDraw = opts.done ?? ((): void => { logUpdate.done(); });
     } else {
       const stderr = opts.stderr ?? process.stderr;
       const stdout = opts.stdout ?? process.stdout;
@@ -163,7 +177,20 @@ export class WatchRenderer {
         columns: opts.columns,
         solution: this.solution ?? undefined,
       });
+      this.finishDraw = null;
     }
+  }
+
+  /**
+   * T45: releases `log-update`'s held-open frame once the live session is
+   * over, so whatever the caller writes to the stream next (the score and
+   * cost block, the next shell prompt) starts on a fresh line instead of
+   * overwriting or corrupting the last drawn frame. A no-op in the B31
+   * fallback branch (`handle()` routed every event to a plain
+   * `ConsoleRenderer` instead, so no live frame was ever opened to release).
+   */
+  finish(): void {
+    this.finishDraw?.();
   }
 
   /**
