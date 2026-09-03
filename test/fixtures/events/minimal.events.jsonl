@@ -1,0 +1,3 @@
+{"runId":"minimal-run","seq":0,"tMs":0,"type":"run:start","puzzleId":"synthetic-2x1","profileName":"baseline","models":{"tier1":"nvidia/Nemotron-3_5-Lightning","tier2":"deepseek-ai/DeepSeek-V4-Pro"},"seed":null}
+{"runId":"minimal-run","seq":1,"tMs":5,"type":"grid:init","width":2,"height":1,"blocks":[[false,false]],"numbers":[[1,null]],"slots":[{"id":"1a","row":0,"col":0,"length":2,"direction":"across","clue":"Test clue"}]}
+{"runId":"minimal-run","seq":2,"tMs":42,"type":"run:end","status":"ok","wallMs":42}
