@@ -77,18 +77,27 @@ export interface SearchHooksDeps {
 const MAX_ROUNDS = 6;
 
 /**
- * The caps whose crossing ends the current phase (spec, "Budget-cap
- * behaviour"). `tier2Calls` is deliberately absent: exhausting it downgrades
- * an escalation to a re-ask (T18 does that from `ctx.tier2CallsUsed`) rather
- * than stopping the phase, so the sweep carries on at tier 1.
+ * The caps whose crossing stops this module spending (spec, "Budget-cap
+ * behaviour"). Only the run-global *spend* caps qualify: once the run has
+ * spent its dollars, its tokens or its wall clock, no further call may be
+ * made anywhere, including in the termination pass.
+ *
+ * Three caps are deliberately absent:
+ *   - `tier2Calls` is global but not terminal: exhausting it downgrades an
+ *     escalation to a re-ask (T18 does that from `ctx.tier2CallsUsed`)
+ *     rather than stopping the phase, so the sweep carries on at tier 1.
+ *   - `backtracks` and `repairCalls` are phase-scoped counters (T19 keeps
+ *     them out of its own `GLOBAL_CAPS` for exactly this reason). They
+ *     belong to the search loop and the repair loop, which end their own
+ *     phase on them; the spec has the pipeline proceed to the next phase on
+ *     a cap hit, so an exhausted `backtracks` cap must not silence the
+ *     trigger-5 termination pass (which is bounded by its own tier-2 caps)
+ *     or any later phase's hook calls.
  */
-const PHASE_ENDING_CAPS: ReadonlySet<BudgetCap> = new Set([
-  'usd',
-  'tokens',
-  'wallMs',
-  'backtracks',
-  'repairCalls',
-]);
+const PHASE_ENDING_CAPS: ReadonlySet<BudgetCap> = new Set(['usd', 'tokens', 'wallMs']);
+
+/** Why an action was not executed once a run-global spend cap was crossed. */
+const PHASE_ENDED_REASON = 'a run-global budget cap was crossed and the run has stopped spending';
 
 /** The per-slot state neither the search nor the policy holds. */
 interface SlotState {
@@ -146,7 +155,11 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
   let tier2CallsUsed = 0;
   /** Caps a `budget:hit` has been emitted for; the event fires once per cap. */
   const capsReported = new Set<BudgetCap>();
-  /** Set once a phase-ending cap is crossed; no further call is made. */
+  /**
+   * Set once a run-global spend cap is crossed; no further call is made, in
+   * this phase or any later one. It does not stop `decide` being consulted:
+   * the policy is pure and free, and its verdict still has to be reported.
+   */
   let phaseEnded = false;
 
   function stateOf(slotId: string): SlotState {
@@ -167,8 +180,11 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
 
   /**
    * Emits `budget:hit` for a crossed cap, at most once per cap, and records
-   * whether the phase should now end. Never throws: the caller finishes what
-   * it is doing and the phase ends gracefully (spec, "Budget-cap behaviour").
+   * whether the run has stopped spending (`PHASE_ENDING_CAPS`). Never throws:
+   * the caller finishes what it is doing and the phase ends gracefully (spec,
+   * "Budget-cap behaviour"). A phase-scoped cap - `backtracks` from the
+   * search loop, `repairCalls` from repair - is reported and handed back to
+   * that loop, which ends its own phase on it; it never gates the hooks.
    */
   function reportCap(cap: BudgetCap | null): void {
     if (cap === null) return;
@@ -393,9 +409,6 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
     point: EscalationContext['point'],
     initialClueUnderstood: number | null,
   ): Promise<EscalationDecision> {
-    if (phaseEnded) {
-      return { action: 'none', reason: 'a budget cap was crossed; the phase is ending' };
-    }
     if (stateOf(slotId).gaveUp) {
       return { action: 'give-up', reason: 'the slot was already given up' };
     }
@@ -406,6 +419,16 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
       const pattern = grid.patternFor(slotId);
       const decision = decide(contextFor(slotId, point, pattern, clueUnderstood));
+
+      if (phaseEnded && (decision.action === 'reask' || decision.action === 'escalate')) {
+        // A crossed spend cap stops the spending, not the deciding. The
+        // policy has run and chose an action this module can no longer
+        // afford, which is reported like any other unexecutable decision:
+        // `none` mid-search, and at termination a give-up that marks the
+        // slot, so a slot abandoned for want of budget stays distinguishable
+        // from one the search never reached.
+        return executed ?? notExecuted(slotId, point, decision, PHASE_ENDED_REASON);
+      }
 
       if (decision.action === 'reask') {
         const blocked = reaskBlockedBy(slotId, pattern);

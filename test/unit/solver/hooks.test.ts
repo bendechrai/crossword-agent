@@ -576,6 +576,26 @@ describe('createSearchHooks / budget', () => {
     ]);
   });
 
+  it('reports a crossed backtracks cap without gating its own spending', async () => {
+    // `backtracks` is the search phase's own counter (T19 keeps it out of the
+    // run-global caps): crossing it ends the search loop, which is the
+    // search's business, and must not stop the hooks re-asking.
+    const profile = makeProfile({ search: { maxBacktracks: 2 } });
+    const h = harness({ profile, queue: [result([candidate('COT')])] });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+
+    expect(h.hooks.chargeBudget('backtracks', 3).exceeded).toBe('backtracks');
+    expect(eventsOfType(h.events, 'budget:hit')).toEqual([
+      { type: 'budget:hit', cap: 'backtracks', limit: 2, actual: 3 },
+    ]);
+
+    const decision = await h.hooks.onEmptyDomain('1A', { pattern: 'C??', depth: 1 });
+
+    expect(decision.action).toBe('reask');
+    expect(h.requests).toHaveLength(1);
+  });
+
   it('chargeBudget observes wallMs rather than charging it', () => {
     let clock = 1_000;
     const profile = makeProfile({ budget: { wallMs: 50 } });
@@ -632,6 +652,81 @@ describe('createSearchHooks / termination and persistence', () => {
     expect(decisions[0]?.trigger).toBe(5);
     expect(h.requests.map((req) => req.purpose)).toEqual(['escalate']);
     expect(h.domains.get('1A').map((c) => c.answer)).toEqual(['COT']);
+  });
+
+  it('runs the trigger-5 pass after the search exhausted its backtracks cap', async () => {
+    const profile = makeProfile({
+      search: { maxBacktracks: 2 },
+      escalation: { maxTier2CallsPerPuzzle: 3 },
+    });
+    const h = harness({ profile, queue: [result([candidate('COT', 0.7, 2)])] });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+
+    // What the search does on a hard puzzle: routine backtracking crosses the
+    // phase-scoped cap long before the run is out of money, and the search
+    // then terminates and calls the trigger-5 pass.
+    expect(h.hooks.chargeBudget('backtracks', 3).exceeded).toBe('backtracks');
+
+    const decisions = await h.hooks.onSearchTermination(['1A']);
+
+    // decide is still consulted (it is consulted again after the call it
+    // chose, per B13), with the empty domain that makes it trigger 5.
+    const atTermination = h.contexts.filter((ctx) => ctx.point === 'at-termination');
+    expect(atTermination.length).toBeGreaterThan(0);
+    expect(atTermination.every((ctx) => ctx.slotId === '1A')).toBe(true);
+    expect(atTermination[0]?.domainSize).toBe(0);
+    expect(decisions[0]?.trigger).toBe(5);
+    expect(decisions[0]?.action).toBe('escalate');
+    expect(h.requests.map((req) => req.purpose)).toEqual(['escalate']);
+    expect(eventsOfType(h.events, 'slot:escalate')).toHaveLength(1);
+  });
+
+  it('gives up and marks the slot suspect after the backtracks cap when no call is affordable', async () => {
+    const profile = makeProfile({
+      reasksPerSlot: 0,
+      search: { maxBacktracks: 1 },
+      escalation: { maxTier2CallsPerPuzzle: 0 },
+    });
+    const h = harness({ profile });
+    h.domains.setBase('1A', []);
+
+    expect(h.hooks.chargeBudget('backtracks', 2).exceeded).toBe('backtracks');
+
+    const decisions = await h.hooks.onSearchTermination(['1A']);
+
+    expect(decisions[0]?.trigger).toBe(5);
+    expect(decisions[0]?.action).toBe('give-up');
+    expect(h.domains.isSuspect('1A')).toBe(true);
+    expect(h.requests).toHaveLength(0);
+  });
+
+  it('marks a still-empty slot given up when a run-global cap has stopped the spending', async () => {
+    const profile = makeProfile({ budget: { usd: 0.000001 } });
+    const h = harness({
+      profile,
+      queue: [
+        result([candidate('COT')], 0.9, {
+          usage: { promptTokens: 1000, completionTokens: 500, totalTokens: 1500 },
+        }),
+      ],
+    });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+    h.domains.setBase('4A', []);
+
+    await h.hooks.onEmptyDomain('1A', { pattern: 'C??', depth: 1 });
+    expect(eventsOfType(h.events, 'budget:hit')).toMatchObject([{ cap: 'usd' }]);
+
+    const decisions = await h.hooks.onSearchTermination(['4A']);
+
+    // No further call is made, but the slot is still marked, so repair (T42)
+    // can tell a slot the run abandoned from one it never reached.
+    expect(decisions[0]?.action).toBe('give-up');
+    expect(decisions[0]?.trigger).toBe(5);
+    expect(decisions[0]?.reason).toContain('run-global budget cap');
+    expect(h.domains.isSuspect('4A')).toBe(true);
+    expect(h.requests).toHaveLength(1);
   });
 
   it('merged re-ask results survive undoTo(0) (B39)', async () => {
