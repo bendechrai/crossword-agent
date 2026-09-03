@@ -1,0 +1,163 @@
+{
+  "runId": "p1--baseline--20260101T000000Z--aaaaaaaa",
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "status": "ok",
+  "puzzle": {
+    "id": "p1",
+    "source": "xd",
+    "style": "american",
+    "stratum": "american",
+    "size": "5x5",
+    "slots": 2
+  },
+  "profile": {
+    "name": "baseline",
+    "tier1": "nvidia/Nemotron-3_5-Lightning",
+    "tier2": "deepseek-ai/DeepSeek-V4-Pro",
+    "candidatesPerAsk": 10,
+    "calibration": "rank",
+    "samples": 1,
+    "batchSize": 1,
+    "reasksPerSlot": 2,
+    "sampling": {
+      "temperature": 0.2,
+      "maxTokens": 512
+    },
+    "escalation": {
+      "policy": "reask-first",
+      "clueUnderstoodThreshold": 0.4,
+      "maxTier2CallsPerPuzzle": 15,
+      "escalationsPerSlot": 1
+    },
+    "search": {
+      "ordering": "margin",
+      "ldsLimitStart": 0,
+      "ldsLimitMax": 3,
+      "maxBacktracks": 200
+    },
+    "repair": {
+      "enabled": true,
+      "maxCalls": 30,
+      "maxEditDistance": 2
+    },
+    "budget": {
+      "usd": 0.5,
+      "tokens": 2000000,
+      "wallMs": 900000
+    },
+    "rateLimit": {
+      "rpsFraction": 0.9,
+      "maxConcurrencyTier1": 8,
+      "maxConcurrencyTier2": 16
+    },
+    "promptVersion": "1"
+  },
+  "provenance": {
+    "gitCommit": "abc1234",
+    "nodeVersion": "v22.0.0",
+    "packageVersion": "1.0.0",
+    "profileSource": "builtin"
+  },
+  "repeatIndex": 0,
+  "seed": null,
+  "models": {
+    "tier1": "nvidia/Nemotron-3_5-Lightning",
+    "tier2": "deepseek-ai/DeepSeek-V4-Pro"
+  },
+  "accuracy": {
+    "letters": 1,
+    "words": 1,
+    "perfect": true,
+    "emptyCells": 0
+  },
+  "perSlot": [
+    {
+      "slotId": "1A",
+      "clue": "Clue for 1A",
+      "length": 4,
+      "truth": "TRUE",
+      "filled": "TRUE",
+      "correct": true,
+      "producedBy": 1,
+      "batchIndex": 0,
+      "truthInCandidates": true,
+      "truthRank": 0,
+      "rejectCounts": {
+        "length": 0,
+        "charset": 0,
+        "pattern": 0,
+        "clue-echo": 0,
+        "duplicate": 0,
+        "rejected-before": 0
+      },
+      "parseFailures": 0,
+      "latencyMs": 500,
+      "usd": 0.005,
+      "reasks": 0,
+      "escalated": false,
+      "candidatesSeen": 8,
+      "pickedRank": 0
+    },
+    {
+      "slotId": "2D",
+      "clue": "Clue for 2D",
+      "length": 4,
+      "truth": "TRUE",
+      "filled": "TRUE",
+      "correct": true,
+      "producedBy": 1,
+      "batchIndex": 1,
+      "truthInCandidates": true,
+      "truthRank": 0,
+      "rejectCounts": {
+        "length": 0,
+        "charset": 0,
+        "pattern": 0,
+        "clue-echo": 0,
+        "duplicate": 0,
+        "rejected-before": 0
+      },
+      "parseFailures": 0,
+      "latencyMs": 500,
+      "usd": 0.005,
+      "reasks": 0,
+      "escalated": false,
+      "candidatesSeen": 8,
+      "pickedRank": 0
+    }
+  ],
+  "calls": {
+    "tier1": {
+      "count": 5,
+      "promptTokens": 1000,
+      "completionTokens": 250,
+      "reasoningTokens": 0,
+      "usdBilled": 0.05,
+      "usdCounterfactual": 0.05,
+      "cacheHits": 0,
+      "avgLatencyMs": 500
+    },
+    "tier2": {
+      "count": 1,
+      "promptTokens": 300,
+      "completionTokens": 80,
+      "reasoningTokens": 0,
+      "usdBilled": 0.02,
+      "usdCounterfactual": 0.02,
+      "cacheHits": 0,
+      "avgLatencyMs": 700
+    }
+  },
+  "search": {
+    "backtracks": 0,
+    "discrepancies": 0,
+    "wipeouts": 0,
+    "ac3Reductions": 0
+  },
+  "repair": {
+    "proposals": 0,
+    "accepted": 0
+  },
+  "wallMs": 1000,
+  "budgetHits": []
+}
