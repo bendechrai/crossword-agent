@@ -1,0 +1,27 @@
+{
+  "description": "A 4x3 grid whose top row sits above a full row of blocks, so 1A has zero crossings (B7). 1A is seeded empty, so it is branched on last (margin -Infinity) and fails there; with no crossings to choose from, the backtrack target is the lowest-margin assignment anywhere in the grid, which is 5A at margin 0.25.",
+  "grid": ["...", "###", "...", "..."],
+  "domains": {
+    "1A": [],
+    "2A": [
+      { "answer": "ATE", "score": 0.9 },
+      { "answer": "APE", "score": 0.3 }
+    ],
+    "5A": [
+      { "answer": "NOR", "score": 0.8 },
+      { "answer": "NOT", "score": 0.55 }
+    ],
+    "2D": [
+      { "answer": "AN", "score": 0.7 },
+      { "answer": "AX", "score": 0.25 }
+    ],
+    "3D": [
+      { "answer": "TO", "score": 0.6 },
+      { "answer": "TA", "score": 0.25 }
+    ],
+    "4D": [
+      { "answer": "ER", "score": 0.5 },
+      { "answer": "EX", "score": 0.35 }
+    ]
+  }
+}

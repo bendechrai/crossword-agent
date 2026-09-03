@@ -1,0 +1,30 @@
+{
+  "description": "A 3x3 open grid where the second slot branched on (2D) has both of its values wiped out by 4A, so it runs out of values while an ancestor (1A) still has one. Exercises the values-exhausted backjump: 4A is crossed only by the assigned 2D, so each wipeout targets 2D itself, and 2D's own exhaustion then targets 1A. 1A's remaining value wipes 3D out in turn, so no fill exists and the search ends with its best partial.",
+  "grid": ["...", "...", "..."],
+  "domains": {
+    "1A": [
+      { "answer": "TOP", "score": 0.9 },
+      { "answer": "TON", "score": 0.3 }
+    ],
+    "4A": [
+      { "answer": "ARE", "score": 0.5 },
+      { "answer": "ACE", "score": 0.45 }
+    ],
+    "5A": [
+      { "answer": "BED", "score": 0.5 },
+      { "answer": "BID", "score": 0.45 }
+    ],
+    "1D": [
+      { "answer": "TAB", "score": 0.5 },
+      { "answer": "TAD", "score": 0.45 }
+    ],
+    "2D": [
+      { "answer": "ONE", "score": 0.9 },
+      { "answer": "OWE", "score": 0.5 }
+    ],
+    "3D": [
+      { "answer": "PEN", "score": 0.5 },
+      { "answer": "PIN", "score": 0.45 }
+    ]
+  }
+}

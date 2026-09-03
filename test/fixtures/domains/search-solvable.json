@@ -1,0 +1,50 @@
+{
+  "description": "The 5x5 synthetic grid whose domains admit exactly one consistent fill. Every slot's true answer is top-ranked and every decoy is killed by some crossing, so the search completes with no backtrack and no discrepancy.",
+  "puzzle": "synthetic-5x5",
+  "domains": {
+    "1A": [
+      { "answer": "OH", "score": 0.9 },
+      { "answer": "EH", "score": 0.5 }
+    ],
+    "3A": [
+      { "answer": "PI", "score": 0.9 },
+      { "answer": "XI", "score": 0.5 }
+    ],
+    "5A": [
+      { "answer": "RAYON", "score": 0.9 },
+      { "answer": "NYLON", "score": 0.6 }
+    ],
+    "7A": [
+      { "answer": "AVOID", "score": 0.9 },
+      { "answer": "EVADE", "score": 0.6 }
+    ],
+    "8A": [
+      { "answer": "LOUSE", "score": 0.9 },
+      { "answer": "MOUSE", "score": 0.6 }
+    ],
+    "9A": [
+      { "answer": "EX", "score": 0.9 },
+      { "answer": "OX", "score": 0.5 }
+    ],
+    "1D": [
+      { "answer": "ORAL", "score": 0.9 },
+      { "answer": "OPAL", "score": 0.55 }
+    ],
+    "2D": [
+      { "answer": "HAVOC", "score": 0.9 },
+      { "answer": "HAVEN", "score": 0.55 }
+    ],
+    "3D": [
+      { "answer": "POISE", "score": 0.9 },
+      { "answer": "PRIDE", "score": 0.55 }
+    ],
+    "4D": [
+      { "answer": "INDEX", "score": 0.9 },
+      { "answer": "INLET", "score": 0.55 }
+    ],
+    "6D": [
+      { "answer": "YOU", "score": 0.9 },
+      { "answer": "YEW", "score": 0.55 }
+    ]
+  }
+}
