@@ -1570,7 +1570,19 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T52 | done | 90bc017 | wave 4 |
 | T50 | done | a9d77c9 | wave 4; determinism fix (pinned word list) after first merge rollback |
 | T51 | done | db0074e | wave 4; coverage thresholds now enforced in CI |
+| T53 | deferred | - | v1.1: votes/blend calibration and fitting |
+| T54 | deferred | - | v1.1: escalation and batch-size bench runs |
 
 ## Blocked
 
-None yet.
+None.
+
+## Follow-ups (post-v1)
+
+- Highest value: `src/llm/tierRouter.ts` sends the reasoning-off sampling parameter only for purpose `seed` (per B41); every non-seed tier-1 call (re-ask, repair, escalation checks) spends its whole token budget on chain-of-thought and never emits parseable JSON, so those calls are never cached and all six committed fixtures replay with `--offline-lenient` rather than strict `--offline`. Fix: send reasoning-off for every tier-1 purpose, then refresh the committed cache and regenerate snapshots; expect a real accuracy gain since re-asks currently never succeed on tier 1.
+- `puzzles/fixtures/FIXTURES.md`'s public-domain basis for the four pre-1965 NYT fixtures ("claimed: not renewed") is the builder's best-effort research, not a legal conclusion, and is marked needs-human-review; Ben's sign-off is required before treating those files as clear for redistribution.
+- A couple of committed snapshot fixtures carry verbatim non-ASCII characters (an en dash and an accented letter) copied from the original 1950s NYT clue text; left unedited since it is third-party historical source text, not authored prose.
+- README.md should document `scripts/smoke-container.sh` as a manual pre-release check (`docker compose up -d` then `sh scripts/smoke-container.sh`); not done in wave 4 since README.md was outside the relevant tasks' Owns lists.
+- Spec touch-ups: `docs/benches/README.md` has no contract test asserting the 30/20/10 stratum split and id/stratum-only keys of `sets/mixed-30.json`, so the shape can drift silently; and it does not state that both benches are re-run in M6 with the repair pass enabled (spec line 941). Both are small additions for whoever picks up T54.
+- Baseline letter accuracy on the four real 1950s/60s NYT fixtures is 0.33 to 0.60 with the cheap model; the bench set needs modern puzzles (and/or the tier-1 fix above) before its numbers are meaningful for tuning.
+- Fixtures pin a 2,000-entry test word list; if repair fill quality matters for the benches, consider committing a pinned snapshot of the full collaborative word list under `test/fixtures/`.
