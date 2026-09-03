@@ -1,0 +1,45 @@
+{
+  "clue_understood": 0.95,
+  "candidates": [
+    {
+      "answer": "FISH",
+      "confidence": 0.98
+    },
+    {
+      "answer": "TROUT",
+      "confidence": 0.02
+    },
+    {
+      "answer": "SALMO",
+      "confidence": 0.01
+    },
+    {
+      "answer": "CARP",
+      "confidence": 0.01
+    },
+    {
+      "answer": "BREAM",
+      "confidence": 0.01
+    },
+    {
+      "answer": "PIKE",
+      "confidence": 0.01
+    },
+    {
+      "answer": "EEL",
+      "confidence": 0.01
+    },
+    {
+      "answer": "SHAD",
+      "confidence": 0.01
+    },
+    {
+      "answer": "STUR",
+      "confidence": 0.01
+    },
+    {
+      "answer": "GAR",
+      "confidence": 0.01
+    }
+  ]
+}

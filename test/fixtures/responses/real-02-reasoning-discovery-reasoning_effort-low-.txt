@@ -1,0 +1,33 @@
+Here's a thinking process:
+
+1.  **Analyze User Input:**
+   - Style: American-style crossword
+   - Clue: "discovery#1: Large striped Asian big cat"
+   - Length: 5 letters when run together
+   - Requirement: Give up to 10 candidate answers, best first
+   - Output format: JSON with `clue_understood`, `candidates` array, optional `notes`
+   - Answers must be uppercase, run together, no spaces/punctuation/accents
+   - Each answer has exactly the number of letters asked for (5 letters)
+
+2.  **Parse the Clue:**
+   - "Large striped Asian big cat"
+   - This is a definition-style clue typical of American crosswords.
+   - "Large striped Asian big cat" -> Tiger
+   - Tiger has 5 letters: T-I-G-E-R
+   - When run together: TIGER
+   - No other 5-letter Asian striped big cat comes to mind immediately (maybe leopard? but leopard isn't typically "striped", and it's not specifically Asian. Jaguar? Not Asian. Cheetah? Not striped. Panther? Not striped.)
+   - So the answer is almost certainly "TIGER"
+
+3.  **Check Length:**
+   - 5 letters: TIGER -> exactly 5. Perfect.
+
+4.  **Consider if there are other possibilities:**
+   - Could it be "LEOPARD"? No, 7 letters, and not typically "striped" (rosettes).
+   - "JAGUAR"? 6 letters, not Asian.
+   - "CHEETAH"? 7 letters, not striped.
+   - "PUMAS"? 5 letters, but not typically described as "striped Asian big cat".
+   - "TIGER" is the only one that fits perfectly: 5 letters, large, striped, Asian big cat.
+
+5.  **Formulate Candidates:**
+   - Since the clue is very straightforward and the match is exact, I'll put "TIGER" as the top candidate with high confidence.
+   - The user asks for up to 10 candidates, but realistically there's only one solid answer. I could list others with very low confidence, but the instructions say "Offer each answer once. Two spellings that run together to the same letters are the same answer." and "Answers are

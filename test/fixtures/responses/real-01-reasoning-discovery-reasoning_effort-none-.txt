@@ -1,0 +1,13 @@
+{
+  "clue_understood": 0.95,
+  "candidates": [
+    {
+      "answer": "TIGER",
+      "confidence": 0.98
+    },
+    {
+      "answer": "LEOPARD",
+      "confidence": 0.02
+    }
+  ]
+}
