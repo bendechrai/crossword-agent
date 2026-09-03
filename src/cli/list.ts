@@ -9,9 +9,22 @@ const EMPTY_LIBRARY_MESSAGE = 'no puzzles yet - try: xw fetch xd --limit 5';
 
 const COLUMNS = ['id', 'source', 'date', 'size', 'style', 'slots', 'best letters', 'last run'] as const;
 
-/** Longer than this and a cell is truncated with `...` so the table fits 80 columns. */
+/** No single cell is ever wider than this, regardless of table width. */
 const MAX_CELL_WIDTH = 24;
 const COLUMN_GAP = '  ';
+
+/** The table is capped to this many columns; see `fitWidths`. */
+const TABLE_WIDTH = 80;
+
+/** A shrunk free-text column never goes narrower than this. */
+const MIN_FREE_TEXT_WIDTH = 8;
+
+/**
+ * Columns free-form enough to truncate when the table would otherwise exceed
+ * `TABLE_WIDTH`, in shrink priority order (used as a tiebreak when two
+ * columns are equally wide).
+ */
+const FREE_TEXT_COLUMNS = ['id', 'style', 'source'] as const;
 
 /**
  * `--config` > `$CROSSWORD_CONFIG` (via `loadConfig`) resolves the config
@@ -72,6 +85,38 @@ function computeWidths(header: readonly string[], rows: readonly string[][]): nu
   });
 }
 
+function tableWidth(widths: readonly number[]): number {
+  return widths.reduce((sum, w) => sum + w, 0) + COLUMN_GAP.length * Math.max(widths.length - 1, 0);
+}
+
+/**
+ * Shrinks the free-text columns (id, then style, then source; see
+ * `FREE_TEXT_COLUMNS`) one character at a time, always picking whichever of
+ * those is currently widest, until the table fits `TABLE_WIDTH` columns or
+ * every free-text column has hit `MIN_FREE_TEXT_WIDTH`. Other columns (date,
+ * size, slots, best letters, last run) are never shrunk since their content
+ * is already narrow and fixed-format.
+ */
+function fitWidths(header: readonly string[], widths: readonly number[]): number[] {
+  const fitted = [...widths];
+  const shrinkable = FREE_TEXT_COLUMNS.map((name) => header.indexOf(name)).filter((i) => i >= 0);
+
+  while (tableWidth(fitted) > TABLE_WIDTH) {
+    const candidates = shrinkable.filter((i) => (fitted[i] ?? 0) > MIN_FREE_TEXT_WIDTH);
+    if (candidates.length === 0) break;
+    const widest = candidates.reduce((a, b) => ((fitted[b] ?? 0) > (fitted[a] ?? 0) ? b : a));
+    fitted[widest] = (fitted[widest] ?? 0) - 1;
+  }
+
+  return fitted;
+}
+
+function truncateTo(value: string, width: number): string {
+  if (value.length <= width) return value;
+  if (width <= 3) return value.slice(0, width);
+  return `${value.slice(0, width - 3)}...`;
+}
+
 function formatLine(cells: readonly string[], widths: readonly number[]): string {
   return cells.map((c, i) => c.padEnd(widths[i] ?? 0)).join(COLUMN_GAP).trimEnd();
 }
@@ -79,9 +124,10 @@ function formatLine(cells: readonly string[], widths: readonly number[]): string
 function printTable(rows: readonly PuzzleIndexRow[]): void {
   const header: string[] = [...COLUMNS];
   const dataRows = rows.map(rowCells);
-  const widths = computeWidths(header, dataRows);
+  const widths = fitWidths(header, computeWidths(header, dataRows));
+  const fittedRows = dataRows.map((row) => row.map((cell, i) => truncateTo(cell, widths[i] ?? cell.length)));
   console.log(formatLine(header, widths));
-  for (const row of dataRows) console.log(formatLine(row, widths));
+  for (const row of fittedRows) console.log(formatLine(row, widths));
 }
 
 /**

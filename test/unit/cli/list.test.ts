@@ -149,4 +149,20 @@ describe('listCommand', () => {
     const parsed: unknown = JSON.parse(lines[0] ?? '[]');
     expect(parsed).toEqual([sampleRow('a')]);
   });
+
+  it('caps every printed line at 80 columns, truncating a wide id with "..."', async () => {
+    const dir = tempDir();
+    const wideId = 'a'.repeat(40);
+    await upsertIndexRow(sampleRow(wideId), { puzzlesDir: dir });
+
+    await listCommand(options(), GLOBAL, { puzzlesDir: dir });
+
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.length).toBeLessThanOrEqual(80);
+    }
+    const idCell = (lines[1] ?? '').trim().split(/\s{2,}/)[0] ?? '';
+    expect(idCell.endsWith('...')).toBe(true);
+    expect(idCell.length).toBeLessThan(wideId.length);
+  });
 });
