@@ -115,6 +115,12 @@ function overlayProfile(
   const out: Record<string, unknown> = { ...base };
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
+    // '__proto__' is never a `Profile` field, and a plain `out[key] = value`
+    // for that key replaces the object's prototype instead of adding a field.
+    // A profile file carrying it is already rejected above by
+    // PROFILE_FILE_KEYS; skipping it here keeps that true for the `overrides`
+    // layer as well, whatever shape a caller hands in.
+    if (key === '__proto__') continue;
     if (NESTED_GROUP_KEYS.includes(key) && isPlainObject(value) && isPlainObject(out[key])) {
       // A field inside a nested-group patch set to `undefined` (e.g. an
       // absent CLI flag mapped straight into `overrides.sampling`) must not

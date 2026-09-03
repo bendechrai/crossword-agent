@@ -290,21 +290,36 @@ export const batch8 = {
   promptVersion: '1',
 } satisfies Profile;
 
-/** Keyed by the CLI-facing / `Profile.name` spelling, e.g. `xw solve --profile eager-escalation`. */
-const BUILTINS: Readonly<Record<string, Profile>> = {
-  baseline,
-  'eager-escalation': eagerEscalation,
-  patient,
-  'no-repair': noRepair,
-  'tier1-only': tier1Only,
-  'strong-only': strongOnly,
-  votes3,
-  batch1,
-  batch2,
-  batch3,
-  batch5,
-  batch8,
-};
+/**
+ * Keyed by the CLI-facing / `Profile.name` spelling, e.g.
+ * `xw solve --profile eager-escalation`.
+ *
+ * A `Map`, deliberately, not an object literal keyed by name: every lookup
+ * below takes a string a user typed (`--profile`, a profile file's
+ * `"extends"`, T47's `--profiles`), and `SOME_OBJECT[name]` also resolves
+ * `Object.prototype`'s members. On an object literal, `getBuiltin('__proto__')`
+ * would answer with `Object.prototype` (cloned to `{}` and typed `Profile`)
+ * and `getBuiltin('constructor')`, `getBuiltin('toString')` or
+ * `getBuiltin('hasOwnProperty')` would reach a function, which
+ * `structuredClone` rejects with a `DataCloneError` - a non-`CliError` that
+ * exits 1 with a stack trace instead of the usage error this module promises.
+ * A `Map` has no inherited entries, so those names are simply absent, like any
+ * other unknown profile name.
+ */
+const BUILTINS: ReadonlyMap<string, Profile> = new Map<string, Profile>([
+  ['baseline', baseline],
+  ['eager-escalation', eagerEscalation],
+  ['patient', patient],
+  ['no-repair', noRepair],
+  ['tier1-only', tier1Only],
+  ['strong-only', strongOnly],
+  ['votes3', votes3],
+  ['batch1', batch1],
+  ['batch2', batch2],
+  ['batch3', batch3],
+  ['batch5', batch5],
+  ['batch8', batch8],
+]);
 
 /**
  * A deep copy each call, so a caller mutating the result - including a
@@ -312,17 +327,22 @@ const BUILTINS: Readonly<Record<string, Profile>> = {
  * module-level literal. A shallow `{ ...profile }` is not enough: the six
  * nested groups (`sampling`, `escalation`, `search`, `repair`, `budget`,
  * `rateLimit`) would still be shared references.
+ *
+ * The returned record is keyed by the same fixed literal names as `BUILTINS`,
+ * so building it by assignment is safe; look a user-supplied name up with
+ * `getBuiltin()` rather than by indexing this record, for the reason given on
+ * `BUILTINS` above.
  */
 export function getBuiltins(): Record<string, Profile> {
   const out: Record<string, Profile> = {};
-  for (const [name, profile] of Object.entries(BUILTINS)) {
+  for (const [name, profile] of BUILTINS) {
     out[name] = structuredClone(profile);
   }
   return out;
 }
 
 export function getBuiltin(name: string): Profile {
-  const profile = BUILTINS[name];
+  const profile = BUILTINS.get(name);
   if (profile === undefined) {
     throw usageError(
       `unknown built-in profile "${name}"`,
@@ -333,5 +353,5 @@ export function getBuiltin(name: string): Profile {
 }
 
 export function builtinNames(): string[] {
-  return Object.keys(BUILTINS);
+  return [...BUILTINS.keys()];
 }

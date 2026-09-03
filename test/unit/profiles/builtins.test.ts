@@ -50,6 +50,23 @@ const EXPECTED_DIFFERENCE_FROM_BASELINE: Record<string, (p: Profile) => unknown>
   batch8: (p) => p.batchSize,
 };
 
+/**
+ * Names that are members of `Object.prototype` rather than built-in profiles.
+ * A plain-object map would answer for every one of them - `BUILTINS['__proto__']`
+ * with `Object.prototype` (which `structuredClone` turns into `{}`, typed
+ * `Profile`, with no error at all) and the rest with functions (which
+ * `structuredClone` rejects with a `DataCloneError`: not a `CliError`, so exit
+ * 1 with a stack trace rather than the promised usage error).
+ */
+const PROTOTYPE_MEMBER_NAMES = [
+  '__proto__',
+  'constructor',
+  'toString',
+  'hasOwnProperty',
+  'valueOf',
+  'isPrototypeOf',
+];
+
 describe('builtins', () => {
   it('builtinNames() lists exactly the twelve documented names', () => {
     expect(builtinNames().sort()).toEqual([...EXPECTED_NAMES].sort());
@@ -105,6 +122,40 @@ describe('builtins', () => {
       expect(error.message).toContain('does-not-exist');
     }
   });
+
+
+  it('builtinNames() carries no Object.prototype member as a profile name', () => {
+    // Declaration order, not just set membership: it is what the error hints
+    // and T47's `--profiles` listing show.
+    expect(builtinNames()).toEqual(EXPECTED_NAMES);
+    for (const name of PROTOTYPE_MEMBER_NAMES) {
+      expect(builtinNames()).not.toContain(name);
+    }
+  });
+
+  it('getBuiltins() carries no Object.prototype member as an own key', () => {
+    const all = getBuiltins();
+    for (const name of PROTOTYPE_MEMBER_NAMES) {
+      expect(Object.hasOwn(all, name)).toBe(false);
+    }
+  });
+
+  it.each(PROTOTYPE_MEMBER_NAMES)(
+    'getBuiltin("%s") throws a usage CliError instead of resolving a prototype member',
+    (name) => {
+      let error: unknown;
+      try {
+        getBuiltin(name);
+      } catch (e) {
+        error = e;
+      }
+      expect(isCliError(error)).toBe(true);
+      if (isCliError(error)) {
+        expect(error.code).toBe(ExitCode.USAGE);
+        expect(error.message).toContain(name);
+      }
+    },
+  );
 
   it.each(EXPECTED_NAMES)('%s parses through ProfileSchema without error', (name) => {
     const profile = getBuiltin(name);

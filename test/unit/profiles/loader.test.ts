@@ -11,6 +11,7 @@ import { loadConfig } from '../../../src/config.js';
 import { baseline, patient, strongOnly } from '../../../src/profiles/builtins.js';
 import { resolveProfile } from '../../../src/profiles/loader.js';
 import { PROFILE_SOURCE_BUILTIN } from '../../../src/profiles/schema.js';
+import type { ProfileInput } from '../../../src/profiles/schema.js';
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../fixtures/profiles');
 const fixture = (name: string): string => join(FIXTURES_DIR, name);
@@ -88,6 +89,16 @@ describe('resolveProfile - built-in and file resolution', () => {
   it('a profile spec that is neither a built-in nor an existing file is a usage error', async () => {
     await expectCliError(() => resolveProfile({ profile: 'no-such-profile-or-file' }), ExitCode.USAGE);
   });
+
+  // A name that is an `Object.prototype` member is no more a profile than any
+  // other unknown string: it must not resolve to an inherited member of the
+  // built-in map on its way through `getBuiltin()`.
+  it.each(['__proto__', 'constructor', 'toString', 'hasOwnProperty'])(
+    'a profile spec naming the Object.prototype member "%s" is an ordinary usage error',
+    async (spec) => {
+      await expectCliError(() => resolveProfile({ profile: spec }), ExitCode.USAGE);
+    },
+  );
 });
 
 describe('resolveProfile - five-layer precedence (Acceptance 3)', () => {
@@ -142,6 +153,20 @@ describe('resolveProfile - CLI overrides merge nested groups one level deep', ()
     });
     expect(profile.sampling.maxTokens).toBe(999);
     expect(profile.sampling.temperature).toBe(patient.sampling.temperature);
+  });
+
+  it('a "__proto__" key in an overrides object cannot inject a field through the prototype', async () => {
+    // The base file deliberately leaves `tier1` unset, so a replaced prototype
+    // would be the only place a `tier1` could come from: a plain
+    // `out['__proto__'] = value` assignment in the overlay swaps the object's
+    // prototype instead of adding a field, and the value below would then be
+    // read in place of the zod default.
+    const overrides = JSON.parse('{"__proto__":{"tier1":"polluted"}}') as Partial<ProfileInput>;
+    const { profile } = await resolveProfile({
+      profile: fixture('full-profile-no-tier1.json'),
+      overrides,
+    });
+    expect(profile.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
   });
 
   it('an explicit undefined inside a nested-group override never discards a value the base already set', async () => {
