@@ -1,0 +1,24 @@
+<!--
+  T28 fixture: a hand-authored stand-in for a Guardian crossword series
+  listing page (e.g. https://www.theguardian.com/crosswords/series/cryptic).
+  Not a copy of the real page - only the shape the adapter's scraper cares
+  about is mirrored: anchors whose href matches
+  /crosswords/<series>/<digits>, newest first. The adapter finds the latest
+  id by taking the largest digit run among those anchors, so listing order
+  here does not matter to the test, only the set of ids does.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Cryptic crossword | The Guardian</title>
+  </head>
+  <body>
+    <div class="crossword-list">
+      <a href="/crosswords/cryptic/29296">Cryptic crossword No 29,296</a>
+      <a href="/crosswords/cryptic/29295">Cryptic crossword No 29,295</a>
+      <a href="/crosswords/cryptic/29294">Cryptic crossword No 29,294</a>
+      <a href="/crosswords/cryptic/29293">Cryptic crossword No 29,293</a>
+      <a href="/crosswords/cryptic/29292">Cryptic crossword No 29,292</a>
+    </div>
+  </body>
+</html>
