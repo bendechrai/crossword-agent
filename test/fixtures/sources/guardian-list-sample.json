@@ -1,0 +1,68 @@
+{
+  "_comment": "T28 fixture: a small hand-authored Guardian puzzle JSON body (the shape served at https://www.theguardian.com/crosswords/<series>/<id>.json), used to exercise the source adapter's list()/download()/normalise() without a real cryptic-sample-sized payload. Mirrors the same crossword.entries[] shape as test/fixtures/guardian/cryptic-sample.json (T26), just smaller: a fully open 3x3 grid, minRun 2, numbers 1,2,3 on the top row and 4,5 down the left column (B19).",
+  "crossword": {
+    "entries": [
+      {
+        "id": "1-across",
+        "number": 1,
+        "direction": "across",
+        "position": { "x": 0, "y": 0 },
+        "length": 3,
+        "clue": "Feline pet (3)",
+        "solution": "CAT",
+        "separatorLocations": {}
+      },
+      {
+        "id": "1-down",
+        "number": 1,
+        "direction": "down",
+        "position": { "x": 0, "y": 0 },
+        "length": 3,
+        "clue": "British exclamation of surprise (3)",
+        "solution": "COR",
+        "separatorLocations": {}
+      },
+      {
+        "id": "2-down",
+        "number": 2,
+        "direction": "down",
+        "position": { "x": 1, "y": 0 },
+        "length": 3,
+        "clue": "Feeling of wonder (3)",
+        "solution": "AWE",
+        "separatorLocations": {}
+      },
+      {
+        "id": "3-down",
+        "number": 3,
+        "direction": "down",
+        "position": { "x": 2, "y": 0 },
+        "length": 3,
+        "clue": "Test fixture filler word (3)",
+        "solution": "TLM",
+        "separatorLocations": {}
+      },
+      {
+        "id": "4-across",
+        "number": 4,
+        "direction": "across",
+        "position": { "x": 0, "y": 1 },
+        "length": 3,
+        "clue": "Nocturnal bird (3)",
+        "solution": "OWL",
+        "separatorLocations": {}
+      },
+      {
+        "id": "5-across",
+        "number": 5,
+        "direction": "across",
+        "position": { "x": 0, "y": 2 },
+        "length": 3,
+        "clue": "Rapid eye movement, briefly (3)",
+        "solution": "REM",
+        "separatorLocations": {}
+      }
+    ],
+    "dimensions": { "cols": 3, "rows": 3 }
+  }
+}
