@@ -231,42 +231,117 @@ describe('integration: xw solve --offline against the committed fixture cache', 
     );
   }
 
+  /**
+   * Extracts the sha1 cache key from an OFFLINE_MISS message
+   * (`src/candidates/service.ts`'s `offlineMiss`: `... (cache key <key>)`).
+   */
+  function missKeyOf(e: unknown): string {
+    expect(isCliError(e), `expected a CliError, got: ${String(e)}`).toBe(true);
+    if (!isCliError(e)) throw e;
+    expect(e.code).toBe(ExitCode.OFFLINE_MISS);
+    expect(e.message).toMatch(/cache key/);
+    const match = /cache key ([0-9a-f]+)\)/.exec(e.message);
+    expect(match, `OFFLINE_MISS message did not name a cache key: "${e.message}"`).not.toBeNull();
+    return match![1]!;
+  }
+
+  /** A strict --offline run against `cacheDir`; `null` when it succeeds (no miss). */
+  async function tryStrict(fixture: FixtureSpec, cacheDir: string): Promise<string | null> {
+    try {
+      await runOffline(fixture, cacheDir, 'strict');
+      return null;
+    } catch (e) {
+      return missKeyOf(e);
+    }
+  }
+
+  /**
+   * Runs `fixture` with `--offline-lenient` (never misses) and `inferenceLog:
+   * true`, then returns the `cacheKey` of the first record with `cacheHit:
+   * true` it wrote - a key genuinely served out of `cacheDir`, not one that
+   * happens to be absent. `--offline-lenient` still exercises the exact same
+   * cache-lookup code path as `--offline` (`src/candidates/service.ts`'s
+   * `lookup`); only what happens on a miss differs.
+   */
+  async function firstCacheHitKey(fixture: FixtureSpec, cacheDir: string): Promise<string> {
+    const inferenceLogDir = await freshTmpDir('solve-it-inflog-hit-');
+    const { target, puzzlesDir } = await targetFor(fixture);
+    const out = join(await freshTmpDir('solve-it-out-hit-'), 'run.json');
+    const overrides: SolveCommandOverrides = {
+      cacheDir,
+      inferenceLogDir,
+      env: { NEBIUS_API_KEY: 'offline-test-placeholder-key' },
+      isTty: false,
+    };
+    if (puzzlesDir !== undefined) overrides.puzzlesDir = puzzlesDir;
+
+    const opts: SolveCliOptions = {
+      profile: 'baseline',
+      budgetUsd: PER_PUZZLE_BUDGET_USD,
+      seed: SEED,
+      verbose: 0,
+      watch: false,
+      offline: false,
+      offlineLenient: true,
+      trace: false,
+      inferenceLog: true,
+      out,
+    };
+    const global: GlobalOptions = { color: false };
+    await solveCommand(target, opts, global, overrides);
+
+    const logFiles = (await readdir(inferenceLogDir)).filter((name) => name.endsWith('.jsonl')).sort();
+    expect(logFiles.length, `no inference log written to ${inferenceLogDir}`).toBeGreaterThan(0);
+    const lines = (await readFile(join(inferenceLogDir, logFiles[0]!), 'utf8'))
+      .split('\n')
+      .filter((line) => line.trim() !== '');
+    for (const line of lines) {
+      const record = JSON.parse(line) as { cacheHit: boolean; cacheKey: string };
+      if (record.cacheHit) return record.cacheKey;
+    }
+    throw new Error(
+      `firstCacheHitKey: no cache-hit record for "${fixture.id}" against the intact committed cache - ` +
+        'cannot pick a genuinely-served key to delete',
+    );
+  }
+
   it(
-    'a missing cache entry fails with exit code 4 (OFFLINE_MISS), naming the cache key, not a hang or a network call',
+    'a genuinely cached entry, once deleted, fails strict --offline with exit code 4 naming exactly that key ' +
+      '(T50 review finding 1: a strict replay of the INTACT cache already misses on an uncached repair/reask ' +
+      'entry for every fixture - see scripts/fixtures-refresh.ts module doc - so this test must prove the ' +
+      'deleted key specifically, not merely that some miss occurs)',
     async () => {
+      // Baseline: what strict --offline against the INTACT committed cache
+      // already misses on for each fixture, with no file deleted. Expected
+      // to be non-null for every fixture today (see the doc comment above);
+      // recorded per fixture, not asserted, so this test does not itself
+      // depend on that being true forever.
+      const baselineByFixture = new Map<string, string | null>();
+      for (const fixture of FIXTURES) {
+        baselineByFixture.set(fixture.id, await tryStrict(fixture, CACHE_DIR));
+      }
+
+      const chosen = FIXTURES[0]!;
+      const chosenBaselineKey = baselineByFixture.get(chosen.id) ?? null;
+
+      const hitKey = await firstCacheHitKey(chosen, CACHE_DIR);
+      // Sanity: the key we are about to delete is not simply the fixture's
+      // pre-existing baseline miss under another name.
+      expect(hitKey).not.toBe(chosenBaselineKey);
+
       const brokenCache = await freshTmpDir('solve-it-broken-cache-');
       await cp(CACHE_DIR, brokenCache, { recursive: true });
-      const files = await walkFiles(brokenCache);
-      expect(files.length).toBeGreaterThan(0);
+      const entryFile = join(brokenCache, hitKey.slice(0, 2), `${hitKey}.json`);
+      await stat(entryFile); // sanity: it really was on disk before deletion
+      await rm(entryFile);
 
-      // The deleted file necessarily belongs to exactly one fixture's clue
-      // set (cache keys are content-addressed over prompt-visible fields,
-      // including the clue text, which differs per puzzle) - which fixture
-      // is not known ahead of time, so every fixture is tried and at least
-      // one of them is asserted to hit the now-missing key.
-      await rm(files[0]!);
-
-      const misses: unknown[] = [];
-      for (const fixture of FIXTURES) {
-        try {
-          // Always strict here, regardless of the fixture's own recorded
-          // offlineMode: this test is specifically proving strict-mode miss
-          // detection, not replaying a committed snapshot.
-          await runOffline(fixture, brokenCache, 'strict');
-        } catch (e) {
-          misses.push(e);
-        }
-      }
+      const brokenKey = await tryStrict(chosen, brokenCache);
 
       expect(fetchSpy).not.toHaveBeenCalled();
-      expect(misses.length).toBeGreaterThanOrEqual(1);
-      for (const miss of misses) {
-        expect(isCliError(miss)).toBe(true);
-        if (!isCliError(miss)) continue;
-        expect(miss.code).toBe(ExitCode.OFFLINE_MISS);
-        expect(miss.message).toMatch(/cache key/);
-      }
+      expect(brokenKey, `expected "${chosen.id}" to miss on the deleted key ${hitKey} once it is gone`).not.toBeNull();
+      expect(brokenKey).toBe(hitKey);
+      expect(brokenKey).not.toBe(chosenBaselineKey);
     },
-    60_000,
+    120_000,
   );
 });

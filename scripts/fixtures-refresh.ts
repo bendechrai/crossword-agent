@@ -33,41 +33,57 @@ import { log, setLogLevel } from '../src/util/log.js';
  * (`max(measuredLetters - 0.05, 0.10)`), not the spec's illustrative 0.92 -
  * 1950s NYT clues on a cheap tier-1 model are not assumed to clear 0.92.
  *
- * Why an offline verification pass, and why a lenient fallback.
- * `solve()`'s repair phase explores proposed edits in a fixed, seeded order
- * (`src/solver/repair.ts`'s own doc comment: "row-major order, then
- * candidate letters in alphabetical order, so the pass is reproducible
- * without a PRNG"), but empirically - verified against this project's own
- * committed fixtures, not assumed - a *live* population run's own resulting
- * cache does not always contain every entry a later **strict** `--offline`
- * replay of the identical puzzle/profile/seed goes on to ask for: a live
- * run's exhaustive repair-phase exploration (every filled cell, every
- * candidate letter) is itself sensitive to which candidate answers happen
- * to already be in-memory (`CandidateService`'s per-run ledger, B43) at each
- * step, which a live run builds up against real network timing. Two
- * **offline** replays against a *fixed* cache, by contrast, are
- * deterministic (empirically verified repeatedly: identical cache, identical
- * seed, byte-identical `RunRecord.accuracy`/`perSlot` every time - an
- * offline request never races against network latency).
+ * Why a strict offline replay does not always converge, and why this script
+ * takes only one live pass per fixture (T50 review finding 2 - the previous
+ * revision of this comment attributed the gap to timing-sensitive
+ * exploration order in `src/solver/repair.ts`; that diagnosis was wrong and
+ * has been replaced with the verified one below).
  *
- * So after each live pass, this script tries a **strict** offline replay
- * against the now-updated cache. A handful of extra live passes (up to
- * MAX_LIVE_ATTEMPTS) are given to close a genuine, closeable gap. For at
- * least one committed fixture (`synthetic-5x5`, a puzzle the search already
- * solves perfectly, so repair's entire exhaustive exploration is chasing
- * marginal, noisy score differences on cells that are already correct) this
- * was measured not to converge even after 7 extra live passes, always
- * missing the exact same single proposal - a live run's own repair
- * exploration apparently never revisits it, only a "clean" replay reaches
- * it. Since `src/solver/repair.ts` is frozen for this task (an editable fix
- * would belong to whichever task owns it), the fallback here is to accept
- * that gap the way `--offline-lenient` already does for any other missing
- * entry: after MAX_LIVE_ATTEMPTS, this script captures the committed
- * snapshot with `--offline-lenient` instead of strict `--offline`
- * (confirmed equally deterministic against a fixed cache - two lenient
- * replays produce byte-identical `RunRecord`s in every case tried). Most
- * fixtures converge under strict `--offline` well before the cap; the ones
- * that do not still get a reproducible, honestly-measured snapshot.
+ * `src/llm/tierRouter.ts` (T49, B41) sends the reasoning-off parameter
+ * (`reasoning_effort: "none"`) only when `req.purpose === 'seed'` - never for
+ * `reask`, `escalate` or `repair`. On a reasoning-capable tier-1 model, every
+ * non-seed call therefore leaves reasoning on: the model spends its whole
+ * `sampling.maxTokens` budget on chain-of-thought, the JSON answer is never
+ * written, and `src/llm/parser.ts` fails with "no JSON object found". This is
+ * verified, not assumed: this worktree's own live inference log
+ * (`logs/inference/2026-09-03.jsonl`, 3988 records) shows 2034 of 2039 tier-1
+ * `repair` records and 74 of 74 tier-1 `reask` records with exactly that
+ * signature (`reasoningTokens: 512`, `completionTokens: 1024`, `parseError:
+ * "no JSON object found"`).
+ *
+ * `src/candidates/service.ts`'s `askSingle` only calls `cache.set` when the
+ * parse produced a real `response` (`response !== null`); a parse failure is
+ * never written to the cache in any shape (unlike a successfully parsed empty
+ * candidate list, which *is* cached as a "known dead end", B23). So these
+ * keys cannot exist in the committed cache no matter how many live passes are
+ * made: a second or third live pass reissues the exact same request (same
+ * clue, same model, same sampling parameters, same cache key) and gets the
+ * exact same truncated, non-JSON reply every time, because nothing about the
+ * request changed. An earlier revision of this script took up to three live
+ * passes per fixture, re-spending real money on precisely this deterministic,
+ * unfixable-by-retrying failure before falling back the same way a single
+ * pass does; that retry loop has been removed, and this script now takes
+ * exactly one live pass per fixture.
+ *
+ * The practical consequence: strict `--offline` replay of the committed cache
+ * cannot converge for any fixture that reaches a `reask` or `repair` call on
+ * a reasoning-capable tier-1 model, until either `tierRouter.ts` sends
+ * reasoning-off for every tier-1 purpose (not just `seed`), or
+ * `CandidateService` starts caching negative *parse* outcomes the way it
+ * already caches negative *candidate* outcomes. Both changes are out of
+ * scope here: `src/llm/tierRouter.ts` and `src/candidates/service.ts` are
+ * outside this task's ownership (T50 reads, but must not edit, `src/solver/*`
+ * and every other `src/**` module) and neither is touched by this script.
+ *
+ * So instead: one live pass populates whatever the cache can hold, a strict
+ * offline replay is attempted against the result, and - since it will not
+ * converge for a fixture that hits the gap above - the fallback below
+ * captures the committed snapshot with `--offline-lenient` instead of strict
+ * `--offline` (confirmed deterministic against a fixed cache: two lenient
+ * replays produce byte-identical `RunRecord`s in every case tried). A
+ * fixture that never reaches a non-seed tier-1 call converges under strict
+ * `--offline` on the first check; the rest still get a reproducible,
+ * honestly-measured snapshot via `--offline-lenient`.
  *
  * A fixed `--seed` (SEED below) is used for every solve here, and
  * `test/integration/solve.test.ts` passes the same seed and the same
@@ -79,8 +95,6 @@ const SEED = 42;
 /** Matches the orchestrator note, not the spec's `bench --max-usd` default of 25. */
 const PER_PUZZLE_BUDGET_USD = 0.4;
 const TOTAL_BUDGET_USD = 3;
-/** Extra live passes tried, beyond the first, before falling back to `--offline-lenient` (see module doc). */
-const MAX_LIVE_ATTEMPTS = 2;
 
 interface FixtureSpec {
   id: string;
@@ -191,13 +205,13 @@ async function attemptSolve(
 }
 
 /**
- * One fixture, start to finish: alternate live passes (network on, the
- * `baseline` profile, the per-puzzle budget cap and a fixed seed) with a
- * strict offline replay check against the same cache, up to
- * MAX_LIVE_ATTEMPTS times; falls back to an `--offline-lenient` capture if
- * strict replay never converges (see the module doc comment). Returns the
- * offline-verified record's measurements, which mode captured it, and the
- * live spend to add to the running total.
+ * One fixture, start to finish: a single live pass (network on, the
+ * `baseline` profile, the per-puzzle budget cap and a fixed seed), then a
+ * strict offline replay check against the resulting cache; falls back to an
+ * `--offline-lenient` capture if strict replay does not converge (see the
+ * module doc comment for the verified, non-retryable reason a second live
+ * pass would not help). Returns the offline-verified record's measurements,
+ * which mode captured it, and the live spend to add to the running total.
  */
 async function refreshOne(
   fixture: FixtureSpec,
@@ -215,35 +229,25 @@ async function refreshOne(
 
   const { target, puzzlesDir } = await resolveTarget(fixture, root);
 
-  let usdBilled = 0;
-  let verified: RunRecord | null = null;
-  let offlineMode: OfflineMode = 'strict';
-  let lastMiss = '';
-
-  for (let attempt = 0; attempt <= MAX_LIVE_ATTEMPTS; attempt += 1) {
-    const live = await attemptSolve(target, puzzlesDir, cacheDir, liveOut, 'live');
-    if (!('record' in live)) {
-      throw new Error(`fixtures-refresh: "${fixture.id}": a live (non-offline) solve reported an offline miss - unreachable`);
-    }
-    usdBilled += live.record.calls.tier1.usdBilled + live.record.calls.tier2.usdBilled;
-
-    const check = await attemptSolve(target, puzzlesDir, cacheDir, snapshotPath, 'strict');
-    if ('record' in check) {
-      verified = check.record;
-      break;
-    }
-    lastMiss = check.miss;
-
-    log.warn(
-      `  [${fixture.id}] strict offline replay still misses a cache entry after live pass ${String(attempt + 1)}: ` +
-        `${check.miss} - making another live pass to fill the gap`,
-    );
+  const live = await attemptSolve(target, puzzlesDir, cacheDir, liveOut, 'live');
+  if (!('record' in live)) {
+    throw new Error(`fixtures-refresh: "${fixture.id}": a live (non-offline) solve reported an offline miss - unreachable`);
   }
+  const usdBilled = live.record.calls.tier1.usdBilled + live.record.calls.tier2.usdBilled;
+  await rm(liveOut, { force: true });
 
-  if (verified === null) {
+  let verified: RunRecord;
+  let offlineMode: OfflineMode;
+
+  const check = await attemptSolve(target, puzzlesDir, cacheDir, snapshotPath, 'strict');
+  if ('record' in check) {
+    verified = check.record;
+    offlineMode = 'strict';
+  } else {
     log.warn(
-      `  [${fixture.id}] strict offline replay did not converge after ${String(MAX_LIVE_ATTEMPTS + 1)} live passes ` +
-        `(last miss: ${lastMiss}); capturing the committed snapshot with --offline-lenient instead (see module doc comment).`,
+      `  [${fixture.id}] strict offline replay misses a cache entry: ${check.miss} - a second live pass would ` +
+        'not close this gap (see module doc comment: it is a deterministic uncached parse failure, not a ' +
+        'timing-sensitive exploration order), so capturing the committed snapshot with --offline-lenient instead.',
     );
     const lenient = await attemptSolve(target, puzzlesDir, cacheDir, snapshotPath, 'lenient');
     if (!('record' in lenient)) {
@@ -252,8 +256,6 @@ async function refreshOne(
     verified = lenient.record;
     offlineMode = 'lenient';
   }
-
-  await rm(liveOut, { force: true });
 
   if (verified.status === 'error') {
     log.warn(`  [${fixture.id}] offline-verified run ended in error: ${verified.error ?? 'unknown'}`);
