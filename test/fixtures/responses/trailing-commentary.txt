@@ -1,0 +1,11 @@
+{
+  "clue_understood": 0.9,
+  "candidates": [
+    { "answer": "ANIMAL", "confidence": 0.7 },
+    { "answer": "MAMMAL", "confidence": 0.35 }
+  ],
+  "notes": "crossing_suspect: \"12A\"; the model also typed a stray { in here"
+}
+
+I am confident about "ANIMAL"; MAMMAL is only a fallback for the case where a
+crossing letter rules the first answer out.

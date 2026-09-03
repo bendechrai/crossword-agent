@@ -1,0 +1,12 @@
+<think>
+A first draft, before I check the length: {"clue_understood": 0.2, "candidates": [{"answer": "WRONG", "confidence": 0.95}]}
+That answer is five letters and the slot wants six, so it cannot stand.
+</think>
+{
+  "clue_understood": 0.9,
+  "candidates": [
+    { "answer": "ANIMAL", "confidence": 0.7 },
+    { "answer": "MAMMAL", "confidence": 0.35 }
+  ],
+  "notes": "crossing_suspect: \"12A\"; the model also typed a stray { in here"
+}
