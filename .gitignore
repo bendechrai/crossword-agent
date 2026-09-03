@@ -1,3 +1,15 @@
+node_modules/
+dist/
+runs/
+logs/
+cache/
+corpora/
+data/
+
+# Fetched puzzles are never committed (B46); the fixtures are.
+puzzles/**
+!puzzles/fixtures/**
+
 .env
 .env.*
 !.env.example

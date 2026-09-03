@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bendechrai/crossword-agent/schemas/puzzle-index.schema.json",
+  "title": "Puzzle index",
+  "description": "puzzles/index.json: one row per puzzle in the local library (B34). File paths are repo-relative and POSIX-separated. bestLetterAccuracy and lastRunAt are updated by RunRecorder at the end of every run.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/row" },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "source": { "type": "string", "minLength": 1 },
+        "date": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "style": { "enum": ["american", "cryptic", "quick", "unknown"] },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "slotCount": { "type": "integer", "minimum": 0 },
+        "files": {
+          "type": "object",
+          "properties": {
+            "original": { "type": "string", "minLength": 1 },
+            "normalised": { "type": "string", "minLength": 1 }
+          },
+          "required": ["original", "normalised"],
+          "additionalProperties": false
+        },
+        "schemaVersion": { "const": 1 },
+        "parsedBy": {
+          "enum": ["@xwordly/xword-parser", "xd-crossword-tools", "guardian-json"]
+        },
+        "addedAt": { "type": "string", "format": "date-time" },
+        "bestLetterAccuracy": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lastRunAt": { "type": ["string", "null"] }
+      },
+      "required": [
+        "id",
+        "source",
+        "date",
+        "title",
+        "style",
+        "width",
+        "height",
+        "slotCount",
+        "files",
+        "schemaVersion",
+        "parsedBy",
+        "addedAt",
+        "bestLetterAccuracy",
+        "lastRunAt"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
