@@ -1,0 +1,42 @@
+{
+  "name": "ac3-unchecked",
+  "description": "The 5x5 synthetic grid, whose r4c1 is unchecked (B7). 2D is five cells long but crosses only four slots, so it contributes four arcs, and the prepass completes with two reductions and no wipeout.",
+  "puzzleRef": "synthetic-5x5",
+  "domains": {
+    "1A": [
+      "OH",
+      "AH"
+    ],
+    "1D": [
+      "ORAL",
+      "OVAL"
+    ],
+    "2D": [
+      "HAVOC"
+    ],
+    "3A": [
+      "PI"
+    ],
+    "3D": [
+      "POISE"
+    ],
+    "4D": [
+      "INDEX"
+    ],
+    "5A": [
+      "RAYON"
+    ],
+    "6D": [
+      "YOU"
+    ],
+    "7A": [
+      "AVOID"
+    ],
+    "8A": [
+      "LOUSE"
+    ],
+    "9A": [
+      "EX"
+    ]
+  }
+}

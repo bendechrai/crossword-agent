@@ -1,0 +1,209 @@
+{
+  "name": "ac3-wipeout",
+  "description": "2D crosses three across slots. Both of its candidates end in Z, which no candidate of 5A supports, so arc (2D,5A) empties it. B40: the domain is left untouched, 2D is marked suspect, every arc incident on 2D leaves the worklist, and ac3:wipeout is emitted once. Arcs (4A,1D) and (5A,1D) are still processed afterwards, so the removal is targeted rather than a stop.",
+  "puzzle": {
+    "id": "ac3-wipeout",
+    "source": "synthetic",
+    "title": "AC-3 wipeout",
+    "style": "american",
+    "width": 3,
+    "height": 3,
+    "parsedBy": "xd-crossword-tools",
+    "cells": [
+      [
+        {
+          "row": 0,
+          "col": 0,
+          "block": false,
+          "number": 1
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "block": false,
+          "number": 2
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "block": false,
+          "number": 3
+        }
+      ],
+      [
+        {
+          "row": 1,
+          "col": 0,
+          "block": false,
+          "number": 4
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "block": false
+        },
+        {
+          "row": 1,
+          "col": 2,
+          "block": false
+        }
+      ],
+      [
+        {
+          "row": 2,
+          "col": 0,
+          "block": false,
+          "number": 5
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "block": false
+        },
+        {
+          "row": 2,
+          "col": 2,
+          "block": false
+        }
+      ]
+    ],
+    "slots": [
+      {
+        "id": "1A",
+        "number": 1,
+        "direction": "across",
+        "row": 0,
+        "col": 0,
+        "length": 3,
+        "clue": "Domestic feline",
+        "cells": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            2
+          ]
+        ]
+      },
+      {
+        "id": "1D",
+        "number": 1,
+        "direction": "down",
+        "row": 0,
+        "col": 0,
+        "length": 3,
+        "clue": "Initials down the left",
+        "cells": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "2D",
+        "number": 2,
+        "direction": "down",
+        "row": 0,
+        "col": 1,
+        "length": 3,
+        "clue": "Deliberately unsupported",
+        "cells": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ]
+        ]
+      },
+      {
+        "id": "4A",
+        "number": 4,
+        "direction": "across",
+        "row": 1,
+        "col": 0,
+        "length": 3,
+        "clue": "Loyal pet",
+        "cells": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ]
+      },
+      {
+        "id": "5A",
+        "number": 5,
+        "direction": "across",
+        "row": 2,
+        "col": 0,
+        "length": 3,
+        "clue": "Baked dessert",
+        "cells": [
+          [
+            2,
+            0
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ]
+        ]
+      }
+    ]
+  },
+  "domains": {
+    "1A": [
+      "CAT",
+      "COT"
+    ],
+    "1D": [
+      "CDP"
+    ],
+    "2D": [
+      "AOZ",
+      "OIZ"
+    ],
+    "4A": [
+      "DOG",
+      "DIG"
+    ],
+    "5A": [
+      "PIE",
+      "PUB"
+    ]
+  }
+}
