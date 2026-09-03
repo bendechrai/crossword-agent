@@ -1568,6 +1568,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T45 | done | 37ad4d0 | wave 3 |
 | T47 | done | b6ace7c | wave 3 |
 | T52 | done | 90bc017 | wave 4 |
+| T50 | done | a9d77c9 | wave 4; determinism fix (pinned word list) after first merge rollback |
 
 ## Blocked
 
