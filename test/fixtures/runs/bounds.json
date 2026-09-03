@@ -1,0 +1,56 @@
+{
+  "synthetic-5x5": {
+    "profile": "baseline",
+    "measuredLetters": 1,
+    "measuredWords": 1,
+    "minLetters": 0.95,
+    "perfect": true,
+    "status": "ok",
+    "offlineMode": "lenient"
+  },
+  "nyt-1950-10-12": {
+    "profile": "baseline",
+    "measuredLetters": 0.42857142857142855,
+    "measuredWords": 0.24324324324324326,
+    "minLetters": 0.37857142857142856,
+    "perfect": false,
+    "status": "partial",
+    "offlineMode": "lenient"
+  },
+  "nyt-1955-06-06": {
+    "profile": "baseline",
+    "measuredLetters": 0.4816753926701571,
+    "measuredWords": 0.32432432432432434,
+    "minLetters": 0.4316753926701571,
+    "perfect": false,
+    "status": "partial",
+    "offlineMode": "lenient"
+  },
+  "nyt-1959-04-24": {
+    "profile": "baseline",
+    "measuredLetters": 0.5968586387434555,
+    "measuredWords": 0.35135135135135137,
+    "minLetters": 0.5468586387434554,
+    "perfect": false,
+    "status": "partial",
+    "offlineMode": "lenient"
+  },
+  "nyt-1962-03-21": {
+    "profile": "baseline",
+    "measuredLetters": 0.3298429319371728,
+    "measuredWords": 0.17105263157894737,
+    "minLetters": 0.2798429319371728,
+    "perfect": false,
+    "status": "partial",
+    "offlineMode": "lenient"
+  },
+  "synthetic-7x7": {
+    "profile": "baseline",
+    "measuredLetters": 1,
+    "measuredWords": 1,
+    "minLetters": 0.95,
+    "perfect": true,
+    "status": "ok",
+    "offlineMode": "lenient"
+  }
+}
