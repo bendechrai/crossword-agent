@@ -11,7 +11,7 @@ vi.mock('../../../src/llm/rateLimiter.js', () => ({ getLimiter: vi.fn() }));
 import type { CandidateRequest } from '../../../src/candidates/types.js';
 import { capabilitiesOf } from '../../../src/llm/pricing.js';
 import { getLimiter } from '../../../src/llm/rateLimiter.js';
-import { REASONING_OFF_PARAM, route } from '../../../src/llm/tierRouter.js';
+import { REASONING_OFF_PARAM, REASONING_OFF_VALUE, route } from '../../../src/llm/tierRouter.js';
 import type { ModelCapabilities } from '../../../src/llm/types.js';
 import { ProfileObject, type Profile } from '../../../src/profiles/schema.js';
 
@@ -76,9 +76,12 @@ describe('route: transport mode by capability (B9)', () => {
     const result = route(baseRequest({ tier: 2 }), profile);
 
     expect(result.inlineSchema).toBe(false);
+    // T49 (docs/spikes/tier1-reliability.md section 2): Nebius's own request
+    // validator rejects the schema document sent directly as `json_schema`
+    // ("Field required": name) and accepts it wrapped this way.
     expect(result.request.responseFormat).toEqual({
       type: 'json_schema',
-      json_schema: candidateResponseSchema,
+      json_schema: { name: 'candidate_response', schema: candidateResponseSchema, strict: true },
     });
   });
 
@@ -105,7 +108,11 @@ describe('route: reasoning-off parameter (B41)', () => {
 
     const result = route(baseRequest({ tier: 1, purpose: 'seed' }), profile);
 
-    expect(result.request.extra).toEqual(expect.objectContaining({ [REASONING_OFF_PARAM]: true }));
+    // T49 (docs/spikes/tier1-reliability.md section 1): "none" is the value
+    // measured to actually drive reasoningTokens to 0 against the live API.
+    expect(result.request.extra).toEqual(
+      expect.objectContaining({ [REASONING_OFF_PARAM]: REASONING_OFF_VALUE }),
+    );
   });
 
   it('does not emit it for purpose escalate on the same reasoning-capable model (acceptance 4)', () => {
