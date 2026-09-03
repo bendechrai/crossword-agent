@@ -37,6 +37,15 @@ export interface SearchHooksDeps {
   /** The puzzle title, prompt-only context (T31). */
   title?: string;
   /**
+   * The sample index every `CandidateRequest` this module builds carries. It
+   * is part of the cache key, and the spec's repeat semantics say the run's
+   * repeat index feeds it, so `xw bench --repeat N` takes a genuinely fresh
+   * sample per repeat rather than re-reading repeat 1's cache entry. T44
+   * passes `SolveOptions.repeatIndex` here; it defaults to 0, the single-run
+   * case.
+   */
+  sampleIndex?: number;
+  /**
    * `EscalationContext.parseFailures` for a slot. Injected rather than read
    * off the service, because `parseFailures` lives on T34's
    * `RunCandidateService` (an implementation module) and not on the T0
@@ -127,6 +136,7 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
   const { grid, domains, service, budget, profile, emit } = deps;
   const style: PuzzleStyle = deps.style ?? 'unknown';
   const title = deps.title;
+  const sampleIndex = deps.sampleIndex ?? 0;
   const parseFailuresOf = deps.parseFailures ?? ((): number => 0);
   const priceUsd = deps.priceUsd ?? defaultPriceUsd;
   const decide = deps.decide ?? defaultDecide;
@@ -262,7 +272,7 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
       purpose,
       n: profile.candidatesPerAsk,
       samples: profile.samples,
-      sampleIndex: 0,
+      sampleIndex,
       crossingContext: purpose === 'escalate' ? crossingContextFor(slotId) : undefined,
     };
   }

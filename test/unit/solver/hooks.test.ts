@@ -195,6 +195,7 @@ interface HarnessOptions {
   decide?: (ctx: EscalationContext) => EscalationDecision;
   parseFailures?: (slotId: string) => number;
   now?: () => number;
+  sampleIndex?: number;
 }
 
 function harness(opts: HarnessOptions = {}): Harness {
@@ -226,6 +227,7 @@ function harness(opts: HarnessOptions = {}): Harness {
     style: 'american',
     decide,
     ...(opts.parseFailures === undefined ? {} : { parseFailures: opts.parseFailures }),
+    ...(opts.sampleIndex === undefined ? {} : { sampleIndex: opts.sampleIndex }),
   });
 
   return { grid, domains, budget, profile, events, requests, contexts, hooks };
@@ -344,6 +346,45 @@ describe('createSearchHooks / onEmptyDomain re-ask guards', () => {
     expect(h.requests).toHaveLength(2);
     expect(h.requests[1]?.pattern).toBe('CA?');
     expect(h.requests[1]?.rejected).toEqual([{ answer: 'COT', reason: 'pattern' }]);
+  });
+});
+
+describe('createSearchHooks / sample index', () => {
+  it('defaults sampleIndex to 0 when the caller injects none', async () => {
+    const h = harness({ queue: [result([candidate('COT')])] });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+
+    await h.hooks.onEmptyDomain('1A', { pattern: 'C??', depth: 1 });
+
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0]?.sampleIndex).toBe(0);
+  });
+
+  it('carries the injected sampleIndex on re-ask and escalate requests', async () => {
+    // The repeat index feeds `sampleIndex` (spec, "Repeats"), which is part of
+    // the cache key, so repeat r of `xw bench --repeat N` takes a fresh sample
+    // rather than re-reading repeat 1's entry.
+    let consulted = 0;
+    const h = harness({
+      sampleIndex: 3,
+      queue: [result([candidate('COT')]), result([candidate('CAB', 0.8, 2)])],
+      decide: (): EscalationDecision => {
+        consulted += 1;
+        if (consulted === 1) return { action: 'reask', reason: 'forced by the test' };
+        if (consulted === 2) {
+          return { action: 'escalate', trigger: 2, reason: 'forced by the test' };
+        }
+        return { action: 'none', reason: 'nothing further' };
+      },
+    });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+
+    await h.hooks.onEmptyDomain('1A', { pattern: 'C??', depth: 1 });
+
+    expect(h.requests.map((req) => req.purpose)).toEqual(['reask', 'escalate']);
+    expect(h.requests.map((req) => req.sampleIndex)).toEqual([3, 3]);
   });
 });
 
