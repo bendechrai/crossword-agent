@@ -7,12 +7,6 @@ function cellKey(row: number, col: number): string {
   return `${row},${col}`;
 }
 
-interface AssignRecord {
-  slotId: string;
-  /** Every cell this specific assign() call wrote, with the value it overwrote. */
-  writes: Array<{ row: number; col: number; previous: string | null }>;
-}
-
 /**
  * T3: the grid state machine. Holds letters and assignments, and nothing about
  * domains, scores, tiers or the LLM.
@@ -32,8 +26,6 @@ export class Grid {
   private readonly assigned: Map<string, string>;
   /** cell key -> every slotId whose cells include that cell (0, 1 or 2 entries). */
   private readonly cellSlots: Map<string, string[]>;
-  /** Every assign() call still in effect, in call order, so unassign() is an exact undo. */
-  private readonly trail: AssignRecord[];
 
   constructor(puzzle: Puzzle) {
     const slots = new Map<string, Slot>();
@@ -45,7 +37,6 @@ export class Grid {
     this.letters = puzzle.cells.map((row) => row.map(() => null));
     this.blocks = puzzle.cells.map((row) => row.map((cell) => cell.block));
     this.assigned = new Map();
-    this.trail = [];
 
     const cellSlots = new Map<string, string[]>();
     for (const slot of puzzle.slots) {
@@ -99,41 +90,37 @@ export class Grid {
       }
     });
 
-    const writes: AssignRecord['writes'] = [];
     slot.cells.forEach(([row, col], i) => {
       const rowArr = this.requireRow(row);
-      const previous = rowArr[col] ?? null;
-      writes.push({ row, col, previous });
       rowArr[col] = letters[i] ?? '';
     });
 
-    this.trail.push({ slotId, writes });
     this.assigned.set(slotId, letters.join(''));
   }
 
-  /** Trail-based, exact undo: letters fixed by a crossing assignment survive. */
+  /**
+   * Exact undo, independent of call order: a cell reverts to null only when
+   * no other still-assigned slot covers it. `assigned` is the sole source of
+   * truth, so this is safe whether unassign() calls come in LIFO order or
+   * not - a crossing assignment's letter always survives another's undo
+   * because conflicts are rejected at assign() time, so any surviving
+   * covering slot already agrees with the letter in place.
+   */
   unassign(slotId: string): void {
     const slot = this.requireSlot(slotId);
-    const index = this.trail.findLastIndex((record) => record.slotId === slotId);
-    if (index === -1) {
+    if (!this.assigned.has(slotId)) {
       throw new CliError(ExitCode.UNEXPECTED, `cannot unassign ${slotId}: it is not assigned`);
     }
-    const [record] = this.trail.splice(index, 1);
-    if (record === undefined) {
-      throw new CliError(ExitCode.UNEXPECTED, `cannot unassign ${slotId}: it is not assigned`);
-    }
+    this.assigned.delete(slotId);
 
-    for (const { row, col, previous } of record.writes) {
-      this.requireRow(row)[col] = previous;
-    }
-
-    // A slot assigned more than once (without an intervening unassign) keeps
-    // whatever earlier assign() call is still on the trail.
-    if (this.trail.some((r) => r.slotId === slotId)) {
-      const word = slot.cells.map(([row, col]) => this.requireRow(row)[col] ?? '?').join('');
-      this.assigned.set(slotId, word);
-    } else {
-      this.assigned.delete(slotId);
+    for (const [row, col] of slot.cells) {
+      const coveringSlots = this.cellSlots.get(cellKey(row, col)) ?? [];
+      const stillFixed = coveringSlots.some(
+        (otherSlotId) => otherSlotId !== slotId && this.assigned.has(otherSlotId),
+      );
+      if (!stillFixed) {
+        this.requireRow(row)[col] = null;
+      }
     }
   }
 

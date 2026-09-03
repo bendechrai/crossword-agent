@@ -149,42 +149,64 @@ describe('Grid (synthetic-5x5)', () => {
   });
 
   it('randomised assign/unassign 1000 times returns to the empty snapshot (seeded)', () => {
-    // The trail is LIFO, matching how backtracking search actually drives it
-    // (it always undoes the most recent assignment first): each step
-    // randomly pushes a random not-yet-assigned slot or pops the most
-    // recently assigned one, 1,000 times, then drains whatever remains.
+    // Each step randomly assigns a random not-yet-assigned slot, or unassigns
+    // a random member of the currently-assigned set (not necessarily the
+    // most recent one), 1,000 times, then drains whatever remains in a
+    // shuffled order. This exercises non-LIFO unassign order, unlike a stack
+    // walk which would only ever undo the most recently assigned slot.
     const grid = new Grid(puzzle);
     const emptySnapshot = grid.snapshot();
     const slotIds = [...grid.slots.keys()];
     const rand = mulberry32(20260903);
-    const stack: string[] = [];
-    const stackSet = new Set<string>();
+    const assignedSet = new Set<string>();
 
     for (let i = 0; i < 1000; i += 1) {
-      const canAssign = slotIds.filter((id) => !stackSet.has(id));
-      const doAssign = stack.length === 0 || (canAssign.length > 0 && rand() < 0.5);
+      const canAssign = slotIds.filter((id) => !assignedSet.has(id));
+      const currentlyAssigned = [...assignedSet];
+      const doAssign = currentlyAssigned.length === 0 || (canAssign.length > 0 && rand() < 0.5);
 
       if (doAssign) {
         const slotId = pick(canAssign, rand);
         grid.assign(slotId, answerFor(puzzle, solution, slotId));
-        stack.push(slotId);
-        stackSet.add(slotId);
+        assignedSet.add(slotId);
       } else {
-        const slotId = stack.pop();
-        if (slotId === undefined) throw new Error('stack was unexpectedly empty');
+        const slotId = pick(currentlyAssigned, rand);
         grid.unassign(slotId);
-        stackSet.delete(slotId);
+        assignedSet.delete(slotId);
       }
     }
 
-    // Drain whatever the random walk left assigned, still LIFO.
-    while (stack.length > 0) {
-      const slotId = stack.pop();
-      if (slotId === undefined) throw new Error('stack was unexpectedly empty');
+    // Drain whatever the random walk left assigned, in a shuffled order.
+    const remaining = [...assignedSet];
+    while (remaining.length > 0) {
+      const index = Math.floor(rand() * remaining.length);
+      const [slotId] = remaining.splice(index, 1);
+      if (slotId === undefined) throw new Error('remaining was unexpectedly empty');
       grid.unassign(slotId);
     }
 
     expect(grid.snapshot()).toEqual(emptySnapshot);
+  });
+
+  it('unassign in non-LIFO order: unassigning the earlier of two crossing assignments leaves the later one intact', () => {
+    // assign A, assign B crossing A, unassign A (the earlier one, not the
+    // last): patternFor(B) must be unchanged, and the grid must equal the
+    // state reached by assigning B alone from empty.
+    const answerA = answerFor(puzzle, solution, '1D'); // "ORAL", fixes r0c0 = 'O'
+    const answerB = answerFor(puzzle, solution, '1A'); // "OH", crosses 1D at r0c0
+
+    const grid = new Grid(puzzle);
+    grid.assign('1D', answerA);
+    grid.assign('1A', answerB);
+    const patternBBeforeUnassign = grid.patternFor('1A');
+
+    grid.unassign('1D'); // non-LIFO: unassign the earlier assignment first
+
+    expect(grid.patternFor('1A')).toBe(patternBBeforeUnassign);
+
+    const bAlone = new Grid(puzzle);
+    bAlone.assign('1A', answerB);
+    expect(grid.snapshot()).toEqual(bAlone.snapshot());
   });
 
   it('assigning a conflicting letter throws and leaves the grid unchanged', () => {
