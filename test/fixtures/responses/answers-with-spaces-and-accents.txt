@@ -1,0 +1,9 @@
+{
+  "clue_understood": 0.8,
+  "candidates": [
+    { "answer": "CAFE AU LAIT", "confidence": 0.6 },
+    { "answer": "R\u00c9SUM\u00c9", "confidence": 0.5 },
+    { "answer": "T-SHIRT", "confidence": 0.4 },
+    { "answer": "O\u2019CLOCK", "confidence": 0.3 }
+  ]
+}

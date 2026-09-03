@@ -1,0 +1,23 @@
+{
+  "results": [
+    {
+      "id": "7D",
+      "clue_understood": 0.4,
+      "candidates": [{ "answer": "OTTERS", "confidence": 0.25 }],
+      "notes": "the enumeration is ambiguous"
+    },
+    {
+      "id": "1A",
+      "clue_understood": 0.9,
+      "candidates": [
+        { "answer": "ANIMAL", "confidence": 0.7 },
+        { "answer": "MAMMAL", "confidence": 0.35 }
+      ]
+    },
+    {
+      "id": "5A",
+      "clue_understood": 0.6,
+      "candidates": [{ "answer": "BADGER", "confidence": 0.5 }]
+    }
+  ]
+}

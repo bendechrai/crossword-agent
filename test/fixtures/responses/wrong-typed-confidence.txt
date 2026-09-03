@@ -1,0 +1,7 @@
+{
+  "clue_understood": 0.9,
+  "candidates": [
+    { "answer": "ANIMAL", "confidence": "high" },
+    { "answer": "MAMMAL", "confidence": 0.35 }
+  ]
+}
