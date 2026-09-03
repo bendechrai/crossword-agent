@@ -1,0 +1,18 @@
+Title: Local Sample
+Author: T22 fixture
+Editor: none
+Date: 2024-01-01
+
+CAT#
+ARE.
+TEN#
+
+A1. Feline pet ~ CAT
+A3. Present tense "to be" ~ ARE
+A5. Number after nine ~ TEN
+
+D1. Beverage often iced ~ COLA
+D2. Small vehicle ~ CAR
+
+This fixture exists only so T22's file source adapter has bytes to read and
+round-trip; it is not parsed by any test in this task.
