@@ -12,13 +12,7 @@ export type PuzzleStyle = 'american' | 'cryptic' | 'quick' | 'unknown';
 /** Which measurement stratum a puzzle belongs to in a bench set (A1). */
 export type Stratum = 'american' | 'cryptic';
 
-/**
- * Which parser produced a puzzle (B17). `'xd-hand'` is a T25 addition: the
- * `.xd` adapter uses a hand-written line parser instead of
- * `xd-crossword-tools` (see the comment at the top of
- * `src/puzzle/adapters/xd.ts` for why), pre-authorised as a one-line,
- * one-file contract change for that task.
- */
+/** Which parser produced a puzzle (B17). */
 export type ParsedBy = '@xwordly/xword-parser' | 'xd-crossword-tools' | 'guardian-json' | 'xd-hand';
 
 /** File formats the loader dispatches on. `json` is our own normalised form. */

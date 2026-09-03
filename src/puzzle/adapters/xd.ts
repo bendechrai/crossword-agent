@@ -31,7 +31,12 @@ import type { PuzzleAdapter, PuzzleAdapterContext } from './index.js';
  *   - every line matches `A1. text ~ ANSWER` -> a clue block (there are
  *     normally two, an Across block then a Down block; both merge into one
  *     clue list);
- *   - every line is composed only of `[A-Za-z.]` -> the grid;
+ *   - every line is composed only of `[A-Za-z#.]` -> the grid. Per the xd
+ *     spec, `#` is a block and a letter is a solution cell; `.` denotes an
+ *     *empty* (unfilled) cell, which this loader does not support since it
+ *     always produces a complete `PuzzleWithSolution` - a `.` in the grid is
+ *     therefore a load error naming the cell, not silently treated as a
+ *     block;
  *   - every line matches `Key: Value` -> metadata. `.xd` has no distinct
  *     "Notes" header; a free-text notes block is metadata-shaped only when
  *     it happens to look like `Key: Value` lines (in which case its keys are
@@ -44,7 +49,12 @@ import type { PuzzleAdapter, PuzzleAdapterContext } from './index.js';
 const MIN_RUN = 2;
 
 const CLUE_LINE_RE = /^([AD])(\d+)\.\s+(.*)$/;
-const GRID_CHAR_RE = /^[A-Za-z.]+$/;
+// `#` is a block, a letter is a solution cell, and `.` is a spec-legal
+// "empty cell" that decodeGrid rejects (see the section-layout comment
+// above) - it is included here so a grid line containing one is still
+// classified as a grid block and gets that specific error, rather than
+// falling through to "unrecognised section".
+const GRID_CHAR_RE = /^[A-Za-z#.]+$/;
 const METADATA_LINE_RE = /^([A-Za-z][A-Za-z0-9 _-]*):\s*(.*)$/;
 
 /**
@@ -160,7 +170,7 @@ function parseXdText(text: string, origin: string): ParsedXd {
   return result;
 }
 
-/** Decodes grid lines (`.` = block, a letter = that solution letter) into blocks and a solution grid. */
+/** Decodes grid lines (`#` = block, a letter = that solution letter) into blocks and a solution grid. */
 function decodeGrid(
   gridLines: readonly string[],
   origin: string,
@@ -180,10 +190,15 @@ function decodeGrid(
     const solutionRow: string[] = [];
     for (let col = 0; col < line.length; col++) {
       const ch = line[col] ?? '';
-      if (ch === '.') {
+      if (ch === '#') {
         blockRow.push(true);
         solutionRow.push('');
         continue;
+      }
+      if (ch === '.') {
+        throw notFoundError(
+          `.xd ${origin}: unfilled cell (.) at r${row}c${col} is not supported; this loader requires a complete solution grid`,
+        );
       }
       const upper = ch.toUpperCase();
       if (!/^[A-Z]$/.test(upper)) {
