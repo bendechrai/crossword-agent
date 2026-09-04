@@ -1613,6 +1613,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T51 | done | db0074e | wave 4; coverage thresholds now enforced in CI |
 | T53 | deferred | - | v1.1: votes/blend calibration and fitting |
 | T54 | deferred | - | v1.1: escalation and batch-size bench runs |
+| T56 | done | e8eb7e9 | wave 5 |
 
 ## Blocked
 
