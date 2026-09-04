@@ -998,7 +998,7 @@ export interface RunRecord {
 
 `provenance.gitCommit` is read without a git binary, because the container does not have one: read `.git/HEAD`, follow the ref (falling back to `.git/packed-refs`), else use `$GIT_COMMIT`, else record `"unknown"`. Provenance never fails a run.
 
-`accuracy.letters` and `accuracy.words` are fractions in [0,1]. Cache hits contribute zero tokens to `usdBilled` and are counted in `cacheHits`, while `usdCounterfactual` prices them as if cold. Every number here is derivable from the inference log plus the event stream, which is the point of keeping both.
+`accuracy.letters` and `accuracy.words` are fractions in [0,1]. Cache hits are counted in `cacheHits` and, like every other call, in `count` and the token totals; they add nothing to `usdBilled`, since nothing left the account, while `usdCounterfactual` prices them as if cold from the usage blob the cache entry stored, so the dollars reconcile with the tokens recorded beside them. `avgLatencyMs` is the mean over the calls that reached the provider only: a hit waited on nobody, and folding its zero in would understate how slow the real calls were. Every number here is derivable from the inference log plus the event stream, which is the point of keeping both.
 
 `status` is `ok` for a completed run, `partial` when a budget cap ended a phase early but scoring still ran, and `error` when the run aborted (an offline cache miss under `--offline`, or a provider failure after retries); `error` carries the message.
 

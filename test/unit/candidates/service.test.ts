@@ -671,9 +671,11 @@ describe('level-3 transport events', () => {
     expect(usage[0]?.model).toBe(TIER1_MODEL);
     expect(usage[0]?.usdBilled).toBeGreaterThan(0);
     expect(usage[0]?.usdCounterfactual).toBe(usage[0]?.usdBilled);
+    // T61 acceptance 1: a cold call is emitted once, and says so.
+    expect(usage[0]?.cacheHit).toBe(false);
   });
 
-  it('emits no transport events on a cache hit', async () => {
+  it('emits no request or response events on a cache hit, but does emit its usage', async () => {
     const transport = stubTransport(singleBody([['HAVOC', 0.8]]));
     const h = harness(transport);
 
@@ -683,6 +685,70 @@ describe('level-3 transport events', () => {
 
     const afterEvents = h.events.slice(before);
     expect(eventsOfType(afterEvents, 'llm:request')).toEqual([]);
-    expect(eventsOfType(afterEvents, 'llm:usage')).toEqual([]);
+    expect(eventsOfType(afterEvents, 'llm:response')).toEqual([]);
+    expect(eventsOfType(afterEvents, 'llm:usage')).toHaveLength(1);
+  });
+});
+
+/**
+ * T61 acceptance 1 (B2). A cache hit spends nothing, but it is still a call
+ * the strategy made: it reports the cached usage blob on the same `llm:usage`
+ * event a cold call uses, with `usdBilled` 0, a real `usdCounterfactual` and
+ * `cacheHit` true. Without it, a profile that inherited another profile's
+ * cache reports near-zero cost and wins the bench on run order alone.
+ */
+describe('T61: cache hits are priced counterfactually on llm:usage', () => {
+  it('emits the cached usage with cacheHit true on a hit, and cacheHit false on the cold call', async () => {
+    const transport = stubTransport(singleBody([['HAVOC', 0.8]]));
+    const h = harness(transport);
+
+    await h.service.getCandidates(request());
+    await h.service.getCandidates(request());
+
+    expect(transport.callCount).toBe(1);
+    const usage = eventsOfType(h.events, 'llm:usage');
+    expect(usage).toHaveLength(2);
+
+    const cold = usage[0];
+    const hit = usage[1];
+    expect(cold?.cacheHit).toBe(false);
+    expect(hit?.cacheHit).toBe(true);
+
+    // The hit carries the blob the cold call stored, so it prices the same.
+    expect(hit?.usage).toEqual(cold?.usage);
+    expect(hit?.model).toBe(TIER1_MODEL);
+    expect(hit?.usdCounterfactual).toBe(cold?.usdCounterfactual);
+    expect(hit?.usdCounterfactual).toBeGreaterThan(0);
+    // Nothing left the account, and no provider was waited on.
+    expect(hit?.usdBilled).toBe(0);
+    expect(hit?.latencyMs).toBe(0);
+  });
+
+  it('emits one usage event per clue served from cache in a batched ask', async () => {
+    const reqs = [
+      request({ slotId: '1A', clue: 'Chaos and destruction' }),
+      request({ slotId: '3A', clue: 'Calm self-assurance', length: 5, pattern: '?????' }),
+    ];
+    const body = batchedBody([
+      ['1A', [['HAVOC', 0.9]]],
+      ['3A', [['POISE', 0.9]]],
+    ]);
+    const cold = harness(stubTransport(body), { profile: profile({ batchSize: 2 }) });
+    await cold.service.getCandidatesBatch(reqs);
+    expect(eventsOfType(cold.events, 'llm:usage')).toHaveLength(1);
+
+    // A second service over the same cache directory replays both clues.
+    const warm = harness(stubTransport(), { profile: profile({ batchSize: 2 }) });
+    await warm.service.getCandidatesBatch(reqs);
+
+    const usage = eventsOfType(warm.events, 'llm:usage');
+    expect(usage).toHaveLength(2);
+    expect(usage.every((e) => e.cacheHit === true)).toBe(true);
+    expect(usage.every((e) => e.usdBilled === 0)).toBe(true);
+    // splitUsage divided the batch's tokens between the two clues, so the two
+    // hits add back up to what the one cold call was priced at.
+    const coldUsd = eventsOfType(cold.events, 'llm:usage')[0]?.usdCounterfactual ?? 0;
+    const warmUsd = usage.reduce((sum, e) => sum + e.usdCounterfactual, 0);
+    expect(warmUsd).toBeCloseTo(coldUsd, 9);
   });
 });

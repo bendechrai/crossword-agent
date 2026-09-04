@@ -296,14 +296,21 @@ describe('benchCommand', () => {
     // Every run bills 0.6 usdCounterfactual on tier1; a ceiling of 1.0 is
     // crossed after the second run, so the remaining two (of four) never
     // start. concurrency: 1 keeps the run order deterministic.
+    //
+    // T61: the RunRecorder prices every llm:usage event itself, from the
+    // model the event names and models.json (B29), so the token counts - not
+    // the usd fields on the event - are what set the run's recorded cost.
+    // 2,000,000 prompt + 2,000,000 completion tokens on the baseline tier-1
+    // model is 0.12 + 0.48 = 0.60 usd.
     const wrappedFn: NonNullable<BenchCommandOverrides['solve']> = (deps, profile, opts) => {
       calls.push({ deps, profile, opts });
       deps.emit({
         type: 'llm:usage',
         model: profile.tier1,
-        usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+        usage: { promptTokens: 2_000_000, completionTokens: 2_000_000, totalTokens: 4_000_000 },
         usdBilled: 0.6,
         usdCounterfactual: 0.6,
+        cacheHit: false,
         latencyMs: 5,
       });
       return fn(deps, profile, opts);
