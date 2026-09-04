@@ -1615,6 +1615,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T54 | deferred | - | v1.1: escalation and batch-size bench runs |
 | T56 | done | e8eb7e9 | wave 5 |
 | T57 | done | d6fb7a1 | wave 5 |
+| T58 | done | b89dbfa | wave 5 |
 
 ## Blocked
 
