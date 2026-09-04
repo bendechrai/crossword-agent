@@ -166,3 +166,41 @@ If a later, larger run (more than the 200 clues here) shows the top-candidate ra
 - The reasoning-off finding (section 1) and the schema-wrapper finding (section 2) are each based on very few calls (single-digit) because they are cheap to test and do not need statistical power - they are pass/fail checks against what the API accepts, not a rate measurement.
 - `n` in section 5 may be less than 200 if the USD budget was reached first; the report always states the actual `n` used.
 - `clue_understood` landed in `[0.8, 1.0]` for all 200 responses (section 5's histogram), which is not informative about calibration on its own: the clue pool (committed fixtures plus hand-authored one-line definitions, see section 5) is deliberately easy and unambiguous, with no crossing letters yet (a fresh seed pass), so a model reporting near-certainty on all of it is plausible rather than miscalibrated. The open question "how well calibrated is Nemotron's `clue_understood`?" needs a clue set with genuinely hard/ambiguous entries (cryptic-style wordplay, or clues with partially-filled patterns) to be answerable, which is out of scope for this spike's budget and clue pool.
+
+## 2026-09-04 follow-up (T58): reasoning-off on every tier-1 call
+
+T49 (above) shipped the reasoning-off parameter behind B41's "purpose is seed" clause, so only the seed pass sent it. T50's fixture run then showed what that costs on the other tier-1 purposes, and T58 removed the clause for tier 1 and re-ran the fixture refresh. Numbers below are from this worktree's own live inference log for the T58 refresh run (`logs/inference/2026-09-04.jsonl`, not committed, per B47), and from the two committed synthetic fixtures.
+
+### Before (T50's run, reasoning-off on seed only)
+
+Recorded in docs/build-notes/wave-4.md ("T50 determinism fix"), measured from T50's live inference log (3988 records):
+
+- Tier-1 `repair` calls that parsed: **5 of 2039** (2034 failed with `reasoningTokens: 512`, `completionTokens: 1024` and parse error "no JSON object found" - the model spent its whole `sampling.maxTokens` budget on chain-of-thought and never emitted the JSON).
+- Tier-1 `reask` calls that parsed: **0 of 74**, same signature.
+- `src/candidates/service.ts` never writes a parse failure to the cache, so none of those keys could ever enter the committed cache, and both synthetic fixtures had to be captured with `--offline-lenient`. Strict `--offline` replay: **does not converge** for either fixture.
+
+### After (T58, reasoning-off on every tier-1 call)
+
+Gate is now `supportsReasoning && (tier === 1 || purpose === 'seed')` in `src/llm/tierRouter.ts`; tier 2 keeps B41's original gate, since nothing has been measured there (T58's deliverable is scoped to tier 1).
+
+- Live calls in the refresh run: 57, all tier 1, all non-seed (1 `reask`, 56 `repair`). The 34 seed asks were served from the committed cache, which is unchanged by this fix: the reasoning parameter is not a cache-key field, so T50's seed entries still key-match.
+- Every one of those 57 requests carried `{"reasoning_effort":"none"}`, every response came back HTTP 200 with `reasoningTokens: 0`, and **57 of 57 parsed** (0 parse failures). Mean `completionTokens` 155 (max 319), i.e. nowhere near the 512-token ceiling that the reasoning-on calls hit every time.
+- Total spend for the refresh: **USD 0.0049**.
+- Strict `--offline` replay: **converges for both fixtures.** `test/fixtures/runs/bounds.json` now records `offlineMode: "strict"` for `synthetic-5x5` and `synthetic-7x7`, and the integration suite was run three times in fresh `--network none` containers with those bounds, passing each time.
+
+### What the re-asks did to accuracy
+
+Honest accounting, since the plan expected a gain and one fixture moved the other way:
+
+| Fixture | Before (lenient replay) | After (strict replay) |
+| --- | --- | --- |
+| `synthetic-5x5` | letters 1.0000, words 1.0000, perfect | letters 0.9545, words 0.8182, not perfect |
+| `synthetic-7x7` | letters 1.0000, words 1.0000, perfect | letters 1.0000, words 1.0000, perfect |
+
+On `synthetic-5x5` the repair pass now gets real candidates where it previously got nothing, and the run settles on a mutually consistent but wrong crossing: `1A` "Cry of surprise" fills `OM` instead of `OH` and `2D` "Chaos and destruction" fills `MAVOC` instead of `HAVOC`, sharing the wrong letter at their crossing. The truth is still in the candidate list for both slots (`truthInCandidates: true`, `truthRank` 2 and 0), and both slots saw more candidates than before (3 -> 11 and 3 -> 6), so this is a scoring/selection outcome, not a missing-candidate one: with reasoning on, those calls returned nothing at all and the search kept the seed-pass fill, which happened to be right. The bound the integration test asserts is the measured value minus 0.05 (0.9045), as `scripts/fixtures-refresh.ts` computes it, so the number in the repository is what was measured rather than what was hoped for.
+
+This is a two-puzzle sample of a synthetic grid, so it is not evidence that re-asks hurt in general; it is evidence that the repair pass on tier 1 is now actually running, and that whether its candidates beat the seed fill is a scoring question (`score/calibrate.ts`, M6's calibration fitting) rather than a transport one.
+
+### Spec conflict
+
+docs/spec.md "Candidate service" step 2 still says the router sends the reasoning-off parameter "when the model advertises `reasoning` and the purpose is `seed`". That sentence is now true of tier 2 only. T58 does not own docs/spec.md, so the wording is left for the task that does.
