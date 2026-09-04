@@ -2,6 +2,14 @@
 
 This directory holds committed benchmark reports, produced by `xw report --md` after each bench run.
 
+`sets/modern-12.json` (2024 LA Times dailies plus current Guardian cryptics; see
+[SETS.md](./SETS.md) for the exact fetch recipe) is the standard bench set for
+tuning going forward, superseding `sets/mixed-12.json` for new work. The
+escalation-policy result below predates the constrained-re-ask and prompt
+fixes in T62/T63 - it was run on `mixed-12.json` against a promptVersion-1,
+pre-T62 solver - and is kept in place as the historical baseline rather than
+rerun or rewritten; a fresh run against `modern-12.json` is future work.
+
 Both benches below are run again in M6 (v1.1) with the repair pass enabled,
 because a policy that looks worse before repair may be the one repair rescues
 best (docs/spec.md, "Strategy profiles"). The results recorded here through

@@ -75,6 +75,12 @@ defaults `--limit` to 1 with a hard maximum of 20, and has no archive-backfill
 command. It is for personal research, and puzzles fetched with it are not
 redistributed.
 
+Bench sets under `sets/` (`mixed-12.json`, `modern-12.json`, and the
+still-placeholder `mixed-30.json`) name puzzles by id only, for the same
+reason: `docs/benches/SETS.md` gives the exact, reproducible recipe for
+turning each set's ids back into local puzzles with `xw fetch`, and states
+which paths every step writes to, all of them gitignored.
+
 ## For contributors and coding agents
 
 Verify your work with:
