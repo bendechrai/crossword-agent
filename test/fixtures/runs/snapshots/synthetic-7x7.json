@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-7x7--baseline--20260904T210346Z--30b4f746",
-  "timestamp": "2026-09-04T21:03:46.634Z",
+  "runId": "synthetic-7x7--baseline--20260904T211700Z--2e8e666c",
+  "timestamp": "2026-09-04T21:17:00.706Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-7x7",
@@ -26,7 +26,7 @@
     "escalation": {
       "policy": "reask-first",
       "clueUnderstoodThreshold": 0.4,
-      "maxTier2CallsPerPuzzle": 15,
+      "maxTier2CallsPerPuzzle": 25,
       "escalationsPerSlot": 1
     },
     "search": {
@@ -112,17 +112,17 @@
       "rejectCounts": {
         "length": 0,
         "charset": 0,
-        "pattern": 36,
+        "pattern": 38,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0009656400000000001,
+      "usd": 0.0007887600000000001,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 7,
+      "candidatesSeen": 6,
       "pickedRank": 0
     },
     {
@@ -139,14 +139,14 @@
       "rejectCounts": {
         "length": 0,
         "charset": 0,
-        "pattern": 7,
+        "pattern": 17,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00043038,
+      "usd": 0.0005779800000000001,
       "reasks": 0,
       "escalated": false,
       "candidatesSeen": 5,
@@ -299,19 +299,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 6,
+        "length": 3,
         "charset": 0,
-        "pattern": 19,
+        "pattern": 13,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0023055000000000003,
-      "reasks": 2,
+      "usd": 0.00222098,
+      "reasks": 0,
       "escalated": true,
-      "candidatesSeen": 5,
+      "candidatesSeen": 3,
       "pickedRank": 0
     },
     {
@@ -407,7 +407,7 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 9,
+        "length": 4,
         "charset": 0,
         "pattern": 0,
         "clue-echo": 0,
@@ -416,8 +416,8 @@
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00204756,
-      "reasks": 2,
+      "usd": 0.00190479,
+      "reasks": 0,
       "escalated": true,
       "candidatesSeen": 1,
       "pickedRank": 0
@@ -695,36 +695,36 @@
   ],
   "calls": {
     "tier1": {
-      "count": 57,
-      "promptTokens": 77193,
-      "completionTokens": 7400,
+      "count": 53,
+      "promptTokens": 71601,
+      "completionTokens": 7080,
       "reasoningTokens": 0,
       "usdBilled": 0,
-      "usdCounterfactual": 0.006407580000000002,
-      "cacheHits": 57,
+      "usdCounterfactual": 0.005995260000000002,
+      "cacheHits": 53,
       "avgLatencyMs": 0
     },
     "tier2": {
       "count": 2,
-      "promptTokens": 1676,
-      "completionTokens": 137,
+      "promptTokens": 1665,
+      "completionTokens": 187,
       "reasoningTokens": 0,
       "usdBilled": 0,
-      "usdCounterfactual": 0.0034124999999999997,
+      "usdCounterfactual": 0.0035682500000000002,
       "cacheHits": 2,
       "avgLatencyMs": 0
     }
   },
   "search": {
-    "backtracks": 4,
+    "backtracks": 0,
     "discrepancies": 0,
-    "wipeouts": 4,
-    "ac3Reductions": 13
+    "wipeouts": 0,
+    "ac3Reductions": 15
   },
   "repair": {
-    "proposals": 395,
+    "proposals": 399,
     "accepted": 0
   },
-  "wallMs": 25,
+  "wallMs": 27,
   "budgetHits": []
 }

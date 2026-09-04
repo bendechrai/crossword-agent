@@ -1,11 +1,11 @@
 {
   "synthetic-5x5": {
     "profile": "baseline",
-    "measuredLetters": 1,
-    "measuredWords": 1,
-    "minLetters": 0.95,
-    "perfect": true,
-    "status": "ok",
+    "measuredLetters": 0.6818181818181818,
+    "measuredWords": 0.5454545454545454,
+    "minLetters": 0.6318181818181817,
+    "perfect": false,
+    "status": "partial",
     "offlineMode": "strict"
   },
   "synthetic-7x7": {
