@@ -538,9 +538,19 @@ describe('T61: the printed cost block labels billed and counterfactual separatel
       // `costFigures` sums both tiers, so the record side has to as well: this
       // fixture reaches a cached tier-2 escalation since promptVersion 2 (T63)
       // made `clue_understood` vary enough for the 0.4 trigger to fire.
+      //
+      // Three decimal places, not four: the cost block prints each tier
+      // rounded to 4dp independently, so summing the two printed figures
+      // carries up to 2 x 5e-5 of rounding error against the record's
+      // unrounded sum - more than a 4dp `toBeCloseTo` allows. A 4dp bound
+      // passed only while the two roundings happened to cancel, and stopped
+      // passing the moment the cache changed (T63's fixture clue fix moved
+      // tier-1 to $0.0045 and tier-2 to $0.0025, printing $0.0070 against a
+      // true $0.0069). 3dp still pins both tiers to the tenth of a cent,
+      // which is what this assertion is actually for.
       expect(
         record.calls.tier1.usdCounterfactual + record.calls.tier2.usdCounterfactual,
-      ).toBeCloseTo(figures.counterfactual, 4);
+      ).toBeCloseTo(figures.counterfactual, 3);
     } finally {
       vi.unstubAllGlobals();
     }
