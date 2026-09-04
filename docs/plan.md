@@ -1659,6 +1659,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T58 | done | b89dbfa | wave 5 |
 | T59 | done | c6a6add | wave 6 |
 | T60 | done | aec89cf | wave 6 |
+| T61 | done | e5eb3c9 | wave 6; found by verifying the first real bench run |
 
 ## Blocked
 
