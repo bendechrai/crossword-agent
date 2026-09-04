@@ -28,8 +28,9 @@ Candidate sources of machine-readable crossword puzzles for building and benchma
 - Variety: free, user/indie-constructed puzzles, American-style themed and themeless plus minis; some constructors on the platform also publish cryptics (e.g. George Ho's "loplop" profile on Crosshare)
 - Volume: not established from public pages during this research - unverified
 - Cadence: continuous community submissions
-- Licence/terms: constructing and sharing is free; individual constructors retain rights to their own puzzles; no bulk-redistribution licence was found
-- Fetch: manual, per-puzzle .puz download link on each puzzle's page; no documented public API for programmatic/bulk access was found
+- Licence/terms: constructing and sharing is free; individual constructors retain rights to their own puzzles. Crosshare's terms grant a user only personal, transitory viewing of the puzzles, not a redistribution or bulk-fetch right
+- **Not a source this project will fetch from (T64, verified 2026-09-04).** `crosshare.org/robots.txt` disallows the entire site (`Disallow: /`) for any generic user agent; it carves out an explicit allow only for a short, named list of search and social bots (bingbot, googlebot, facebookexternalhit, Twitterbot, DuckDuckBot, Discordbot), and even that carve-out explicitly disallows `/api/pdf/`, `/api/puz/` and `/api/feed/` - the exact endpoints a puzzle-fetching tool would need. The `.puz` export route the "Download .puz" button uses does exist, but fetching through it programmatically would defy the site's stated crawling policy even though the bytes are technically reachable. Crosshare is open source (github.com/crosshare-org/crosshare, AGPL-3.0), which is relevant to understanding the codebase but does not license the puzzle content served through it. Conclusion: this project adds no Crosshare adapter and `xw fetch` never talks to crosshare.org. A human downloading an individual puzzle by hand through the site's own "Download .puz" button, for their own personal use, remains possible - that is a person using the site as intended, not this tool crawling it - but it is outside the scope of anything `xw fetch` automates.
+- Fetch: none via this tool (see above); manual, per-puzzle .puz download link on each puzzle's page for a human's own personal use
 
 ### Brendan Emmett Quigley (BEQ)
 - URL: https://brendanemmettquigley.com
@@ -124,6 +125,35 @@ Candidate sources of machine-readable crossword puzzles for building and benchma
 
 For the actual solver project, a practical split is: use the **xd corpus's public data** (the pre-1965 NYT .xd puzzles plus the large clue-usage dataset) and the **Kaggle/CrosswordQA clue datasets** for bulk, license-clean benchmarking at scale, since they are explicitly public domain or research-oriented and need no per-puzzle scraping. For spot-testing specifically on British-style cryptics, pull individual puzzles on demand from the **Guardian JSON endpoint** (any `/crosswords/<series>/<id>.json` URL), supplementing with **George Ho's cryptics dataset** to validate clue-parsing and wordplay-explanation logic against real annotated clues. Free indie .puz feeds (BEQ, Club72) and the herbach.dnsalias.com mirror are good for small, hand-picked American-style test cases, but all of these copyrighted feeds should be treated as personal/research use only, not redistributed in bulk.
 
+## Modern puzzles for benches
+
+The two sources `xw fetch` actually talks to today, for pulling *modern*
+(non-public-domain, personal-research-only) puzzles into a bench set:
+
+- **The xd corpus archive, filtered by date** (see "xd crossword corpus"
+  above). `xd-puzzles.zip` holds modern dailies from all 32 publishers in the
+  corpus, not only the pre-1965 public-domain NYT slice - `xw fetch xd
+  --path corpora/xd-puzzles.zip --from <date> --to <date>` reaches any date
+  in the archive, including 2024-2025 LA Times dailies, the way
+  `sets/modern-12.json` does (docs/benches/SETS.md has the exact recipe).
+  This is local personal research only: the zip itself is never committed
+  (`corpora/` is gitignored) and neither are the puzzles it produces.
+- **The Guardian quick series**, via `xw fetch guardian --series quick`. The
+  `guardian` source adapter (src/sources/guardian.ts) and the loader
+  (src/puzzle/adapters/guardian.ts, T60) already map `quick`/`speedy` series
+  to `style: 'quick'` - the same code path `--series cryptic` already uses
+  for `sets/mixed-12.json` and `sets/modern-12.json`, so pulling quick
+  puzzles (short, definitional clues, no wordplay) needs no adapter change,
+  only the `--series quick` flag.
+
+Two more candidates are noted here rather than adopted: the free constructor
+`.puz` feeds from **Brendan Emmett Quigley** and **Club72** (both described
+above, under "Sources") are attractive for small, hand-picked American-style
+test cases, but neither site publishes explicit redistribution terms, only an
+implicit personal-use expectation, so either would need its own terms check
+before this project writes a source adapter for it - the same bar Crosshare
+above failed to clear.
+
 ## Verification log
 
 - https://libipuz.org/ipuz-spec.html - fetched 2026-09-02/03, confirmed ipuz v2.0.2 spec, JSON-based, CC BY-ND 3.0 licensed, has a `solution` field
@@ -158,3 +188,5 @@ For the actual solver project, a practical split is: use the **xd corpus's publi
 - https://www.kaggle.com/api/v1/datasets/view/darinhawley/new-york-times-crossword-clues-answers-19932021 - fetched via the Kaggle API, confirmed licenseName "CC0: Public Domain", totalBytes 28,650,316, lastUpdated 2021-11-04
 - https://www.crossword-compiler.com/en/help/html/exportingpuzzles.htm - fetched, confirms Crossword Compiler's export-formats help page exists, but did not itself contain a canonical .jpz spec (spec claim instead relies on inspecting a real .jpz fixture from xd-crossword-tools, see above)
 - https://www.npmjs.com/package/@xwordly/xword-parser, /xpuz, /@confuzzle/puz-crossword, /xd-crossword-tools - all returned HTTP 403 to the fetch tool (npmjs.com blocks the fetcher's user agent); package details were instead confirmed via the registry.npmjs.org JSON API (see above), which is the authoritative source for the same data
+- https://crosshare.org/robots.txt - fetched 2026-09-04 (T64), confirmed `User-agent: *` / `Disallow: /` (the whole site disallowed for any generic crawler), and a second block naming `bingbot, googlebot, facebookexternalhit, Twitterbot, DuckDuckBot, Discordbot` with `Allow: /` but `Disallow: /admin`, `/account`, `/dashboard`, `/api/pdf/`, `/api/puz/` and `/api/feed/` - i.e. even the named, allowed bots are barred from the puzzle-export endpoints
+- https://github.com/crosshare-org/crosshare - fetched 2026-09-04 (T64), confirmed the repository is licensed under the GNU Affero General Public License 3 (AGPL-3.0)
