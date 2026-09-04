@@ -1,0 +1,18 @@
+{
+  "name": "mixed-12",
+  "note": "12 puzzles for bench runs: 8 american, 4 cryptic. This is the first real (non-placeholder) bench set (T60): 8 pre-1965 NYT dailies fetched from the xd corpus plus 4 Guardian cryptics. Puzzles are fetched locally on demand and never committed to this repository (no-distribution policy) - only these ids are.",
+  "puzzles": [
+    { "id": "xd-nyt1951-01-02", "stratum": "american" },
+    { "id": "xd-nyt1953-01-01", "stratum": "american" },
+    { "id": "xd-nyt1955-01-03", "stratum": "american" },
+    { "id": "xd-nyt1957-01-01", "stratum": "american" },
+    { "id": "xd-nyt1959-01-01", "stratum": "american" },
+    { "id": "xd-nyt1961-01-02", "stratum": "american" },
+    { "id": "xd-nyt1963-01-01", "stratum": "american" },
+    { "id": "xd-nyt1964-01-01", "stratum": "american" },
+    { "id": "guardian-cryptic-30100", "stratum": "cryptic" },
+    { "id": "guardian-cryptic-30101", "stratum": "cryptic" },
+    { "id": "guardian-cryptic-30102", "stratum": "cryptic" },
+    { "id": "guardian-cryptic-30103", "stratum": "cryptic" }
+  ]
+}

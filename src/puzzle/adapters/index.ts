@@ -1,4 +1,4 @@
-import type { PuzzleExt, PuzzleWithSolution } from '../types.js';
+import type { PuzzleExt, PuzzleStyle, PuzzleWithSolution } from '../types.js';
 import { guardianAdapter } from './guardian.js';
 import { xdAdapter } from './xd.js';
 import { xwordlyAdapter } from './xwordly.js';
@@ -11,6 +11,14 @@ export interface PuzzleAdapterContext {
   origin?: string;
   date?: string;
   title?: string;
+  /**
+   * The puzzle's style, when the caller already knows it (T60): a source
+   * adapter's ref can name a series (Guardian) that this loader-level
+   * context has no other way to see. Adapters honour this when present and
+   * fall back to their own detection (or "unknown") otherwise - see
+   * src/cli/fetch.ts, which is the only caller that sets it today.
+   */
+  style?: PuzzleStyle;
 }
 
 export interface PuzzleAdapter {

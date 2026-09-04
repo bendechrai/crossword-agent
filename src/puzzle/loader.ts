@@ -44,6 +44,7 @@ export async function loadPuzzleWithSolution(
     origin: ctx?.origin ?? path,
     ...(ctx?.date !== undefined ? { date: ctx.date } : {}),
     ...(ctx?.title !== undefined ? { title: ctx.title } : {}),
+    ...(ctx?.style !== undefined ? { style: ctx.style } : {}),
   });
 }
 

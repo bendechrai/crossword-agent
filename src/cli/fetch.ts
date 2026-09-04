@@ -2,12 +2,55 @@ import { join } from 'node:path';
 
 import { loadPuzzleWithSolution } from '../puzzle/loader.js';
 import { upsertIndexRow, writeNormalised, type LibraryOptions } from '../puzzle/library.js';
-import type { PuzzleIndexRow } from '../puzzle/types.js';
+import type { PuzzleIndexRow, PuzzleStyle } from '../puzzle/types.js';
 import { getSource } from '../sources/registry.js';
 import type { PuzzleRef, SourceAdapter, SourceDownload } from '../sources/types.js';
 import { atomicWriteFile, resolvePuzzlesDir, toRepoRelativePosix } from '../util/fs.js';
 import { isCliError, notFoundError } from './exit.js';
 import type { FetchOptions, GlobalOptions } from './options.js';
+
+/**
+ * Series -> style (T60). Mirrors src/sources/guardian.ts's own SERIES_STYLE
+ * table (spec: "Puzzle library and sources", `guardian` bullet) - duplicated
+ * here rather than imported because that module is read-only for this task
+ * and does not export it, and because this is the one place that builds the
+ * loader context every source's puzzles flow through (fetchOne below, via
+ * `puzzle/loader.ts`, never through `SourceAdapter.normalise`). Cryptic
+ * family (cryptic, prize, quiptic, everyman, weekend) -> "cryptic"; quick
+ * family (quick, speedy) -> "quick" (the PuzzleStyle union already has a
+ * `quick` member, so no `american` stand-in mapping is needed).
+ */
+const GUARDIAN_SERIES_STYLE: Readonly<Record<string, PuzzleStyle>> = {
+  cryptic: 'cryptic',
+  prize: 'cryptic',
+  quiptic: 'cryptic',
+  everyman: 'cryptic',
+  weekend: 'cryptic',
+  quick: 'quick',
+  speedy: 'quick',
+};
+
+/** Guardian puzzle ids from src/sources/guardian.ts's `list()`: `guardian-<series>-<id>`. */
+const GUARDIAN_REF_ID_RE = /^guardian-([a-z]+)-\d+$/;
+/** Guardian puzzle URLs from the same module: `.../crosswords/<series>/<id>.json`. */
+const GUARDIAN_URL_RE = /\/crosswords\/([^/]+)\/\d+\.json$/;
+
+/**
+ * Derives the puzzle's style from a ref that came from the `guardian`
+ * source, so it can be passed into the loader context (see `fetchOne`)
+ * instead of every Guardian fetch landing as style `unknown` (T60). The
+ * Guardian source's `PuzzleRef` carries no dedicated `series`/`style` field
+ * of its own (frozen: src/sources/types.ts, src/sources/guardian.ts), only
+ * the series folded into the ref's `id` and `url`; a series this table does
+ * not recognise, or a ref from any other source, yields `undefined` so the
+ * adapter falls back to its own default.
+ */
+function guardianStyleForRef(ref: PuzzleRef): PuzzleStyle | undefined {
+  if (ref.source !== 'guardian') return undefined;
+  const series = GUARDIAN_REF_ID_RE.exec(ref.id)?.[1] ?? GUARDIAN_URL_RE.exec(ref.url)?.[1];
+  if (series === undefined) return undefined;
+  return GUARDIAN_SERIES_STYLE[series];
+}
 
 /**
  * Runs one ref's download through the adapter, wrapping any non-`CliError`
@@ -37,7 +80,11 @@ async function downloadRef(adapter: SourceAdapter, ref: PuzzleRef): Promise<Sour
  * never through `SourceAdapter.normalise` - T22 and T27's own adapters leave
  * that hook unimplemented for exactly this reason, and this is the single
  * dispatch point every source's puzzles flow through on their way into the
- * library.
+ * library. `date`/`title` come straight off the ref; `style` is derived here
+ * (see `guardianStyleForRef`, T60) since no `PuzzleRef` field carries it -
+ * every puzzle adapter honours a `ctx.style` that is present and falls back
+ * to its own default otherwise, so a non-Guardian ref (where the helper
+ * returns `undefined`) is unaffected.
  */
 async function fetchOne(
   adapter: SourceAdapter,
@@ -55,6 +102,7 @@ async function fetchOne(
     origin: ref.url,
     date: ref.date,
     title: ref.title,
+    style: guardianStyleForRef(ref),
   });
 
   const file = await writeNormalised(parsed, libraryOptions);
