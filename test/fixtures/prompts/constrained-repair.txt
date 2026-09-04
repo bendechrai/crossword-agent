@@ -17,7 +17,7 @@ How to answer:
 --- user ---
 Puzzle: Synthetic five
 Style: american. American-style crossword: the clue is a definition or a light play on words, abbreviations and proper nouns are common, and the answer may be a phrase.
-Clue 5A: Synthetic silk-like fabric
+Clue 5A: Artificial silk made from cellulose
 Length: 5 letters when run together.
 Known letters: R?Y?N
 In that pattern every letter shown is already certain and "?" is a letter that is not yet known.

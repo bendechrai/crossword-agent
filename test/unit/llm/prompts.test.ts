@@ -127,7 +127,7 @@ const REASK_REQUEST: CandidateRequest = {
 /** The repair pass asking for something other than the answer it already has. */
 const REPAIR_REQUEST = request({
   slotId: '5A',
-  clue: 'Synthetic silk-like fabric',
+  clue: 'Artificial silk made from cellulose',
   length: 5,
   pattern: 'R?Y?N',
   title: 'Synthetic five',
@@ -150,7 +150,7 @@ const ESCALATE_REQUEST = request({
   n: 8,
   crossingContext: [
     { slotId: '8A', clue: 'Small parasitic insect', fill: 'LOUSE', confidence: 0.41 },
-    { slotId: '5A', clue: 'Synthetic silk-like fabric', fill: 'RAYON', confidence: 0.62 },
+    { slotId: '5A', clue: 'Artificial silk made from cellulose', fill: 'RAYON', confidence: 0.62 },
     { slotId: '7A', clue: 'Steer clear of', fill: null, confidence: 0 },
   ],
 });
@@ -334,7 +334,7 @@ describe('escalate template (acceptance 4)', () => {
 
   it("carries every crossing slot's clue and current fill", () => {
     const text = userText(rendered);
-    expect(text).toContain('- 5A "Synthetic silk-like fabric": RAYON (confidence 0.62)');
+    expect(text).toContain('- 5A "Artificial silk made from cellulose": RAYON (confidence 0.62)');
     expect(text).toContain('- 7A "Steer clear of": not yet filled');
     expect(text).toContain('- 8A "Small parasitic insect": LOUSE (confidence 0.41)');
   });

@@ -26,7 +26,7 @@ In that pattern every letter shown is already certain and "?" is a letter that i
 Already rejected for this clue:
 - THY: clue echo
 Answers crossing this clue, as the solver currently has them:
-- 5A "Synthetic silk-like fabric": RAYON (confidence 0.62)
+- 5A "Artificial silk made from cellulose": RAYON (confidence 0.62)
 - 7A "Steer clear of": not yet filled
 - 8A "Small parasitic insect": LOUSE (confidence 0.41)
 Give up to 8 candidate answers for 6D, best first.
