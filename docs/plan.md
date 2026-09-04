@@ -1424,6 +1424,44 @@ Starts once every Wave 3 task is merged.
 - Acceptance: each file contains the command run, the full `--md` table, the stratum split, and one paragraph stating the decision the rule produced and the numbers that produced it.
 - Out of scope during v1: everything. Reserved id.
 
+## Wave 5: follow-ups (2026-09-04)
+
+### T56: Remove real puzzles from the repository; synthetic-only fixtures
+- Workstream: A (puzzle loading) / J
+- Model: sonnet
+- Depends on: T48, T50, T51, T52
+- Owns: puzzles/fixtures/** (deletion), test/fixtures/cache/** (prune), test/fixtures/runs/** (prune and regenerate), test/integration/solve.test.ts, test/integration/smoke.test.ts, scripts/fixtures-refresh.ts, sets/mixed-30.json, .gitignore (the puzzles/fixtures re-include lines only), test/unit/puzzle/fixtures.test.ts
+- Reads (must not edit): src/**, docs/**
+- Spec sections: Testing; Puzzle library and sources
+- Deliverable: Delete puzzles/fixtures/ entirely (the four nyt-*.xd files and FIXTURES.md). Remove every committed cache entry under test/fixtures/cache/ that was produced for those four puzzles (identify them by the clue text or puzzle id recorded in each entry; keep only entries for synthetic-5x5 and synthetic-7x7), remove their snapshots and run records under test/fixtures/runs/, and regenerate bounds.json and the synthetic snapshots offline from the remaining cache (`FIXTURES_REFRESH_OFFLINE_ONLY=1`). Point scripts/fixtures-refresh.ts and both integration tests at the synthetic fixtures only; the fixtures unit test asserts that no file under puzzles/ is tracked by git and that the synthetic fixtures still satisfy B42. Remove the `!puzzles/fixtures` re-include lines from .gitignore so all of puzzles/ is ignored. In sets/mixed-30.json replace the four nyt entries with placeholders so the file keeps its 30-entry, 20 american / 10 cryptic shape, and reword its note to say puzzles are fetched on demand and never committed.
+- Decisions baked in: the no-distribution policy above overrides decisions A3 and B47 (the docs task T57 records that); the cache prune must be exact: a cache entry stays only if its clue and length match a slot in one of the two synthetic fixtures; git history is out of scope for this task (the orchestrator handles it).
+- Acceptance: 1. `git ls-files puzzles` prints nothing after the commit. 2. `git ls-files test/fixtures/cache | wc -l` is smaller and `grep -rl "Agog\|Senor\|1625" test/fixtures/` prints nothing (spot-check strings from the removed puzzles). 3. Integration tests run only synthetic-5x5 and synthetic-7x7 and pass offline. 4. bounds.json lists only the two synthetic ids. 5. preflight passes.
+- Out of scope: src/ changes; the tier-1 router; docs other than the sets note.
+
+### T57: Documentation follow-ups and bench-set contract test
+- Workstream: J
+- Model: sonnet
+- Depends on: T52, T56
+- Owns: README.md, docs/spec.md (Decisions log rows and Testing fixture wording only), docs/decisions/2026-09-03-spec-review.md (append-only addendum), docs/benches/README.md, test/contract/sets.test.ts
+- Reads (must not edit): sets/mixed-30.json, scripts/smoke-container.sh
+- Spec sections: Testing; Strategy profiles
+- Deliverable: README gains a "Puzzles are never committed" paragraph (fetch on demand, no distribution, only synthetic fixtures live in the repo) and a "Manual pre-release check" paragraph documenting `docker compose up -d` then `sh scripts/smoke-container.sh`. docs/spec.md: update the Decisions log rows for fixture policy and for what is committed (A3, B47) to the new policy, and fix the Testing section's fixture wording; note the four spec touch-ups recorded in docs/build-notes (rate:limited colon event names, zod prefault, widened SolveDeps, typecheck config, scorer takes the solution as an argument). docs/decisions/2026-09-03-spec-review.md: append a dated addendum "2026-09-04: A3 and B47 superseded: no real puzzles committed" (append-only, do not rewrite earlier text). docs/benches/README.md: state that both benches are re-run in M6 with the repair pass enabled. Add test/contract/sets.test.ts asserting sets/mixed-30.json has exactly 30 entries, 20 american and 10 cryptic, each with only id and stratum keys, and that no id starts with a real-publisher prefix like nyt-.
+- Decisions baked in: append-only edits to the decisions record; plain ASCII; test/contract is normally frozen but this task is pre-authorised to add the one new test file.
+- Acceptance: 1. README contains both paragraphs. 2. sets contract test passes and fails if an entry gains an extra key (prove with a temporary local edit, reverted). 3. preflight passes. 4. `grep -n "not renewed\|FIXTURES.md" README.md docs/spec.md` prints nothing.
+- Out of scope: any code under src/.
+
+### T58: Send reasoning-off for every tier-1 call; refresh the synthetic cache (NETWORK)
+- Workstream: E
+- Model: opus
+- Depends on: T49, T56
+- Owns: src/llm/tierRouter.ts, test/unit/llm/tierRouter.test.ts, test/fixtures/cache/** (regenerate), test/fixtures/runs/** (regenerate), docs/spikes/tier1-reliability.md (append a dated follow-up section only)
+- Reads (must not edit): src/candidates/service.ts, scripts/fixtures-refresh.ts, docs/build-notes/wave-4.md
+- Spec sections: Candidate service (tier routing, batching); Strategy profiles
+- Deliverable: Change the router so the reasoning-off parameter is sent for every tier-1 call on a model that advertises reasoning, regardless of purpose (seed, constrained, escalate contexts alike), with unit tests for each purpose. Then refresh the committed cache for the two synthetic fixtures against Nebius (`npm run fixtures:refresh` inside a container with the .env copied from the main checkout; expected spend well under 0.10 USD), regenerate snapshots and bounds, and confirm both fixtures now replay under strict `--offline` (bounds.json offlineMode strict). Append a short dated section to the spike doc recording the before/after: number of tier-1 non-seed calls that parsed, and whether strict replay converges.
+- Decisions baked in: decision B41's "purpose is seed" clause is superseded; the cache key is unchanged (the parameter is not a key field), so old entries are simply overwritten on refresh; if strict replay still fails after the fix, record exactly which (clue, pattern, purpose) key misses and keep lenient mode for that fixture rather than guessing.
+- Acceptance: 1. tierRouter tests cover seed, constrained and escalate purposes on a reasoning model and a non-reasoning model. 2. Integration tests pass with offlineMode strict for both synthetic fixtures, or the report names the exact missing key. 3. preflight passes with no network in the test container. 4. The spike doc has the dated follow-up section.
+- Out of scope: real puzzles; the bench runs; calibration.
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1486,8 +1524,11 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T53 | votes/blend calibration + fitting (**deferred v1.1**) | 4 | F | opus | T13,T34,T50 | src/score/calibrate.ts, scripts/fit-calibration.ts |
 | T54 | Escalation and batch-size bench runs (**deferred v1.1**) | 4 | I | sonnet | T46,T47,T50,T52,T53 | docs/benches/escalation-policy.md, docs/benches/batch-size.md |
 | T55 | Wave 1 follow-ups | 3 | J | sonnet | T14,T17,T5,T6,T19,T23 | runRecorder.test.ts, validate/normalise.ts, budget.test.ts |
+| T56 | Remove real puzzles; synthetic-only fixtures | 5 | A | sonnet | T48,T50,T51,T52 | puzzles/fixtures (delete), test/fixtures/cache, test/fixtures/runs, integration tests, fixtures-refresh, sets |
+| T57 | Documentation follow-ups and bench-set contract test | 5 | J | sonnet | T52,T56 | README.md, docs/spec.md rows, decisions addendum, docs/benches/README.md, test/contract/sets.test.ts |
+| T58 | Reasoning-off for every tier-1 call; refresh synthetic cache (NETWORK) | 5 | E | opus | T49,T56 | src/llm/tierRouter.ts, its test, test/fixtures/cache, test/fixtures/runs, spike doc addendum |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred). Total 56, of which 54 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3. Total 59, of which 57 are in v1 (M1-M5).
 
 Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 42.
 
