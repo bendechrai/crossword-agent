@@ -270,6 +270,14 @@ export async function solveCommand(
   // (src/candidates/service.ts) - and reach this same handler. This mirrors
   // `RunRecorder`'s own `modelTier` (src/eval/runRecorder.ts), which is why
   // the printed cost block agrees with the run record.
+  //
+  // T61/B2: a cache hit emits `llm:usage` too, with the cached usage blob,
+  // `usdBilled` 0 and `cacheHit` true, so the printed block's counterfactual
+  // figure counts the whole strategy while its billed figure counts only what
+  // left the account. The two therefore differ on a warm cache, which is the
+  // point: a profile that inherited another profile's cache must not look
+  // free. `usdBilled` is forced to zero for a flagged hit rather than trusted,
+  // so no emitter can bill a call that never happened.
   // -------------------------------------------------------------------------
   const costTally = newPerTierCost();
   bus.on((event) => {
@@ -279,7 +287,7 @@ export async function solveCommand(
     if (tier === null) return;
     const stats = costTally[tier];
     stats.calls += 1;
-    stats.usdBilled += event.usdBilled;
+    stats.usdBilled += event.cacheHit === true ? 0 : event.usdBilled;
     stats.usdCounterfactual += event.usdCounterfactual;
   });
 

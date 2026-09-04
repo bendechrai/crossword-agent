@@ -20,6 +20,8 @@ import {
   makeRunId,
   type RunIdInput,
 } from '../../../src/eval/runRecorder.js';
+import { aggregate } from '../../../src/eval/aggregate.js';
+import { usdFor } from '../../../src/llm/pricing.js';
 import type { PuzzleIndexRow } from '../../../src/puzzle/types.js';
 import { getLogLevel, setLogLevel } from '../../../src/util/log.js';
 import { readGitCommit } from '../../../src/util/git.js';
@@ -129,6 +131,25 @@ function grid5x5() {
   return { width: 5, height: 5, blocks, numbers };
 }
 
+/** The cold call's tokens in `cacheHitEvents`, priced through `models.json`. */
+const COLD_USAGE = { promptTokens: 100, completionTokens: 20, reasoningTokens: 0, totalTokens: 120 };
+/**
+ * The cache hit's tokens in `cacheHitEvents`: the blob the original cold call
+ * stored, which is exactly what makes the hit priceable (B2). Deliberately
+ * different from `COLD_USAGE` so a test cannot pass by pricing the wrong one.
+ */
+const HIT_USAGE = { promptTokens: 80, completionTokens: 40, reasoningTokens: 0, totalTokens: 120 };
+
+/** What `src/llm/pricing.ts` charges for one call with those tokens (B29). */
+function priced(usage: { promptTokens: number; completionTokens: number }): number {
+  return usdFor({
+    model: TIER1,
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    calls: 1,
+  });
+}
+
 /**
  * A minimal two-slot run with a fresh tier-1 call and a cache-hit tier-1
  * call in the seed pass. Used only by the one test below whose shape
@@ -182,9 +203,10 @@ function cacheHitEvents(): SolverEvent[] {
     ...b.next(),
     type: 'llm:usage',
     model: TIER1,
-    usage: { promptTokens: 100, completionTokens: 20, reasoningTokens: 0, totalTokens: 120 },
+    usage: COLD_USAGE,
     usdBilled: 0.001,
     usdCounterfactual: 0.001,
+    cacheHit: false,
     latencyMs: 200,
   });
   b.push({
@@ -224,14 +246,17 @@ function cacheHitEvents(): SolverEvent[] {
     batchIndex: 1,
   });
   b.push({ ...b.next(), type: 'cache:lookup', key: 'k2', hit: true, slotId: '2D' });
+  // T61: the service reports a hit on the same event a cold call uses,
+  // carrying the cached usage blob, `usdBilled` 0 and `cacheHit` true.
   b.push({
     ...b.next(),
     type: 'llm:usage',
     model: TIER1,
-    usage: { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, totalTokens: 0 },
+    usage: HIT_USAGE,
     usdBilled: 0,
-    usdCounterfactual: 0.0007,
-    latencyMs: 5,
+    usdCounterfactual: 0,
+    cacheHit: true,
+    latencyMs: 0,
   });
   b.push({
     ...b.next(),
@@ -494,6 +519,77 @@ describe('createRunRecorder', () => {
     // tier2 was never called: the two figures coincide at zero.
     expect(record.calls.tier2.usdCounterfactual).toBe(record.calls.tier2.usdBilled);
     expect(record.calls.tier2.cacheHits).toBe(0);
+  });
+
+  /**
+   * T61 acceptance 2 (B2, B29). Both usage events are priced here, at write
+   * time, from the model each one names and `models.json`; only the cold one
+   * is billed. The hit's own `usdCounterfactual` on the event is deliberately
+   * 0 in `cacheHitEvents`, so a recorder that trusted the event instead of
+   * pricing it would fail this test.
+   */
+  it('prices every llm:usage event into usdCounterfactual and only cold ones into usdBilled', async () => {
+    const recorder = createRunRecorder({
+      ...baseRecorderOptions(),
+      puzzle: { ...baseRecorderOptions().puzzle, slots: 2 },
+      truth: { '1A': 'CAT', '2D': 'DOGS' },
+    });
+    for (const event of cacheHitEvents()) recorder.handler(event);
+    await recorder.written();
+
+    const tier1 = recorder.record().calls.tier1;
+    expect(priced(COLD_USAGE)).toBeGreaterThan(0);
+    expect(priced(HIT_USAGE)).toBeGreaterThan(0);
+    expect(tier1.usdCounterfactual).toBeCloseTo(priced(COLD_USAGE) + priced(HIT_USAGE), 12);
+    expect(tier1.usdBilled).toBeCloseTo(priced(COLD_USAGE), 12);
+    expect(tier1.cacheHits).toBe(1);
+    // Both calls are counted, and the tokens beside the dollars are the tokens
+    // those dollars were computed from.
+    expect(tier1.count).toBe(2);
+    expect(tier1.promptTokens).toBe(COLD_USAGE.promptTokens + HIT_USAGE.promptTokens);
+    expect(tier1.completionTokens).toBe(COLD_USAGE.completionTokens + HIT_USAGE.completionTokens);
+    // A hit waited on no provider, so it is not folded into the average.
+    expect(tier1.avgLatencyMs).toBe(200);
+  });
+
+  it('attributes the cache-hit slot its counterfactual usd, not zero', async () => {
+    const recorder = createRunRecorder({
+      ...baseRecorderOptions(),
+      puzzle: { ...baseRecorderOptions().puzzle, slots: 2 },
+      truth: { '1A': 'CAT', '2D': 'DOGS' },
+    });
+    for (const event of cacheHitEvents()) recorder.handler(event);
+    await recorder.written();
+
+    const bySlot = new Map(recorder.record().perSlot.map((slot) => [slot.slotId, slot]));
+    expect(bySlot.get('1A')?.usd).toBeCloseTo(priced(COLD_USAGE), 12);
+    expect(bySlot.get('2D')?.usd).toBeCloseTo(priced(HIT_USAGE), 12);
+  });
+
+  /**
+   * T61 acceptance: `src/eval/aggregate.ts` (and hence the `xw bench` summary
+   * table and `xw report`, which both render its groups) already reads
+   * `usdCounterfactual`. This pins that with a record that actually contains
+   * a cache hit, which is the only case where the two figures differ.
+   */
+  it('feeds aggregate() a counterfactual usd per puzzle and per correct word, not the billed one', async () => {
+    const recorder = createRunRecorder({
+      ...baseRecorderOptions(),
+      puzzle: { ...baseRecorderOptions().puzzle, slots: 2 },
+      truth: { '1A': 'CAT', '2D': 'DOGS' },
+    });
+    for (const event of cacheHitEvents()) recorder.handler(event);
+    await recorder.written();
+
+    const record = recorder.record();
+    const counterfactual = priced(COLD_USAGE) + priced(HIT_USAGE);
+    expect(record.calls.tier1.usdBilled).toBeLessThan(counterfactual);
+
+    const group = aggregate([record], { by: 'profile' }).groups[0];
+    expect(group?.n).toBe(1);
+    expect(group?.usdPerPuzzle).toBeCloseTo(counterfactual, 12);
+    // Both slots were filled correctly by cacheHitEvents' stream.
+    expect(group?.usdPerCorrectWord).toBeCloseTo(counterfactual / 2, 12);
   });
 
   it('marks a run "partial" (not "error") when a budget cap was hit even with a complete fill', async () => {

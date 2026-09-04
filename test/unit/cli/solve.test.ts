@@ -22,6 +22,11 @@ const IPUZ_FIXTURE_PATH = fileURLToPath(
   new URL('../../../test/fixtures/puzzles/synthetic-5x5.ipuz', import.meta.url),
 );
 
+const FIXTURE_CACHE_DIR = fileURLToPath(new URL('../../../test/fixtures/cache', import.meta.url));
+const FIXTURE_WORDLIST_PATH = fileURLToPath(
+  new URL('../../../test/fixtures/wordlist.txt', import.meta.url),
+);
+
 const GLOBAL: GlobalOptions = { color: false };
 
 function cliOptions(overrides: Partial<SolveCliOptions> = {}): SolveCliOptions {
@@ -433,4 +438,105 @@ describe('solveCommand', () => {
     expect(costs?.tier1.usdCounterfactual).toBeCloseTo(0.018, 10);
     expect(costs?.tier2).toEqual({ calls: 1, usdBilled: 0.05, usdCounterfactual: 0.09 });
   });
+});
+
+/**
+ * T61 acceptance 3 (B2). The printed cost block is the number a human reads
+ * before deciding a profile is cheap, so it has to name both figures and they
+ * have to diverge once the cache is warm.
+ */
+describe('T61: the printed cost block labels billed and counterfactual separately', () => {
+  /** `Cost: tier1 calls=<n> billed=$<x> counterfactual=$<y> | tier2 ...` */
+  function costFigures(text: string): { billed: number; counterfactual: number } {
+    const line = text.split('\n').find((l) => l.startsWith('Cost:'));
+    expect(line, `no cost block in:\n${text}`).toBeDefined();
+    const billed = [...line!.matchAll(/billed=\$([0-9.]+)/g)].map((m) => Number(m[1]));
+    const counterfactual = [...line!.matchAll(/counterfactual=\$([0-9.]+)/g)].map((m) => Number(m[1]));
+    expect(billed).toHaveLength(2);
+    expect(counterfactual).toHaveLength(2);
+    return {
+      billed: billed.reduce((a, b) => a + b, 0),
+      counterfactual: counterfactual.reduce((a, b) => a + b, 0),
+    };
+  }
+
+  it('sums a cache hit into counterfactual only, so the two figures differ', async () => {
+    const { fn } = mockSolve();
+    const wrappedFn: NonNullable<SolveCommandOverrides['solve']> = (deps, profile, opts) => {
+      deps.emit({
+        type: 'llm:usage',
+        model: profile.tier1,
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
+        usdBilled: 0.004,
+        usdCounterfactual: 0.004,
+        cacheHit: false,
+        latencyMs: 90,
+      });
+      deps.emit({
+        type: 'llm:usage',
+        model: profile.tier1,
+        usage: { promptTokens: 80, completionTokens: 40, totalTokens: 120 },
+        usdBilled: 0,
+        usdCounterfactual: 0.006,
+        cacheHit: true,
+        latencyMs: 0,
+      });
+      deps.emit({ type: 'cost:summary', perTier: deps.costs?.() ?? { tier1: { calls: 0, usdBilled: 0, usdCounterfactual: 0 }, tier2: { calls: 0, usdBilled: 0, usdCounterfactual: 0 } } });
+      return fn(deps, profile, opts);
+    };
+    const sink = makeSink();
+    const overrides = { ...baseOverrides(), stdout: sink.stream, solve: wrappedFn };
+    const out = join(tmpDir('crossword-cli-solve-out-'), 'run.json');
+
+    await solveCommand('synthetic-5x5', cliOptions({ out }), GLOBAL, overrides);
+
+    const figures = costFigures(sink.text());
+    expect(figures.billed).toBeCloseTo(0.004, 6);
+    expect(figures.counterfactual).toBeCloseTo(0.01, 6);
+    expect(figures.counterfactual).toBeGreaterThan(figures.billed);
+  });
+
+  it('prints a non-zero counterfactual and a zero billed for a run served entirely by the committed cache', async () => {
+    const fetchSpy = vi.fn(() => {
+      throw new Error('network access attempted during an offline solve test');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const sink = makeSink();
+      const overrides: SolveCommandOverrides = {
+        ...baseOverrides(),
+        cacheDir: FIXTURE_CACHE_DIR,
+        wordlistPath: FIXTURE_WORDLIST_PATH,
+        stdout: sink.stream,
+        env: { NEBIUS_API_KEY: 'offline-test-placeholder-key' },
+      };
+      const out = join(tmpDir('crossword-cli-solve-out-'), 'run.json');
+
+      await solveCommand(
+        'synthetic-5x5',
+        cliOptions({ out, offline: true, budgetUsd: 0.4, seed: 42, inferenceLog: false }),
+        GLOBAL,
+        overrides,
+      );
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      const figures = costFigures(sink.text());
+      // Every call was served from `test/fixtures/cache`, so nothing was
+      // billed - but the run still cost what it would cost cold, and that is
+      // the figure B2 says the bench decides on.
+      expect(figures.billed).toBe(0);
+      expect(figures.counterfactual).toBeGreaterThan(0);
+
+      const record = JSON.parse(readFileSync(out, 'utf8')) as {
+        calls: { tier1: { usdBilled: number; usdCounterfactual: number; cacheHits: number } };
+      };
+      expect(record.calls.tier1.usdBilled).toBe(0);
+      expect(record.calls.tier1.usdCounterfactual).toBeGreaterThan(0);
+      expect(record.calls.tier1.cacheHits).toBeGreaterThan(0);
+      // The printed block and the written record are the same numbers.
+      expect(record.calls.tier1.usdCounterfactual).toBeCloseTo(figures.counterfactual, 4);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 30_000);
 });

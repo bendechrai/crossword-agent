@@ -281,6 +281,15 @@ export interface LlmUsageEvent extends EventBase {
   usdBilled: number;
   usdCounterfactual: number;
   latencyMs: number;
+  /**
+   * True when this usage was served from the candidate cache rather than the
+   * provider (B2). A hit costs nothing (`usdBilled` 0) but is still priced
+   * into `usdCounterfactual` from the cached usage blob, which is what keeps
+   * two profiles comparable when one of them inherited the other's cache.
+   * Optional so an event stream recorded before T61 still parses; absent is
+   * read as a cold call.
+   */
+  cacheHit?: boolean;
 }
 
 export interface Ac3ArcEvent extends EventBase {

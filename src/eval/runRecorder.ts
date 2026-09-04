@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve as resolvePath } from 'node:path';
 
 import type { RejectReason } from '../candidates/types.js';
-import type { EventHandler, ScoredAnswer, SolverEvent } from '../events/types.js';
+import type { EventHandler, LlmUsageEvent, ScoredAnswer, SolverEvent } from '../events/types.js';
+import { usdFor } from '../llm/pricing.js';
 import type { BudgetHit } from '../policy/types.js';
 import type { ParsedBy, PuzzleIndexRow, PuzzleStyle, Stratum } from '../puzzle/types.js';
 import type { Profile, ProfileSource } from '../profiles/schema.js';
@@ -270,6 +271,35 @@ function finaliseTierStats(stats: MutableTierStats): TierCallStats {
     cacheHits: stats.cacheHits,
     avgLatencyMs,
   };
+}
+
+/**
+ * B2 + B29: every `llm:usage` event is priced here, at write time, from the
+ * model the event names and the `models.json` catalogue - cache hits
+ * included. A hit's event carries the cached usage blob and `usdBilled` 0
+ * (`src/candidates/service.ts`), so pricing it is the only way
+ * `usdCounterfactual` answers the question it exists to answer: what this
+ * strategy costs, whoever happened to warm the cache first.
+ *
+ * A model the catalogue does not know - a synthetic test stream, or a record
+ * replayed after the catalogue dropped a model - falls back to the figure the
+ * emitter already put on the event, rather than failing the whole record over
+ * one call's price.
+ */
+function counterfactualUsdOf(event: LlmUsageEvent): number {
+  try {
+    return usdFor({
+      model: event.model,
+      promptTokens: event.usage.promptTokens,
+      // Reasoning tokens are billed as completion tokens by the emitter
+      // before they get here, exactly as `src/candidates/service.ts` prices
+      // its own calls; they are reported separately on `reasoningTokens`.
+      completionTokens: event.usage.completionTokens,
+      calls: 1,
+    });
+  } catch {
+    return event.usdCounterfactual;
+  }
 }
 
 function readPackageVersion(): string {
@@ -560,21 +590,33 @@ export function createRunRecorder(opts: RunRecorderOptions): RunRecorder {
       }
       case 'llm:usage': {
         const pending = pendingLookups.shift();
+        // The emitter's own flag is authoritative; a stream recorded before
+        // the flag existed falls back to the paired `cache:lookup`.
+        const cacheHit = event.cacheHit ?? pending?.hit === true;
+        const usd = counterfactualUsdOf(event);
         const tier = modelTier(event.model);
         if (tier !== null) {
           const stats = calls[tier];
+          // `count` and the token totals are every call the strategy made,
+          // hits included, so `usdCounterfactual` reconciles with the tokens
+          // recorded beside it. `usdBilled` is what left the account.
           stats.count += 1;
           stats.promptTokens += event.usage.promptTokens;
           stats.completionTokens += event.usage.completionTokens;
           stats.reasoningTokens += event.usage.reasoningTokens ?? 0;
-          stats.usdBilled += event.usdBilled;
-          stats.usdCounterfactual += event.usdCounterfactual;
-          stats.latencies.push(event.latencyMs);
-          if (pending !== undefined && pending.hit) stats.cacheHits += 1;
+          stats.usdCounterfactual += usd;
+          if (cacheHit) {
+            stats.cacheHits += 1;
+          } else {
+            stats.usdBilled += usd;
+            // A hit waited on no provider, so folding its zero into
+            // `avgLatencyMs` would understate how slow the real calls were.
+            stats.latencies.push(event.latencyMs);
+          }
         }
         if (pending !== undefined && pending.slotId !== null) {
           const slot = getSlot(pending.slotId);
-          slot.usd += event.usdCounterfactual;
+          slot.usd += usd;
           slot.latencyMs += event.latencyMs;
         }
         break;

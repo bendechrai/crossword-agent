@@ -433,6 +433,39 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
     return entry;
   }
 
+  /**
+   * B2. A cache hit costs nothing but is still a call the strategy made, so it
+   * is reported on the same `llm:usage` event a cold call is, priced from the
+   * usage blob the `CacheEntry` stored for exactly this purpose: `usdBilled`
+   * is zero, `usdCounterfactual` is what the call would cost cold today, and
+   * `cacheHit` is true so the recorder can tell them apart. Without this,
+   * a profile that inherited another profile's cache reports near-zero cost
+   * and wins the bench on run order alone.
+   *
+   * `latencyMs` is 0: no provider was waited on. An entry written before
+   * usage was recorded (or by a transport that reported none) carries no
+   * usage blob and so cannot be priced; nothing is emitted for it rather
+   * than a fabricated zero.
+   */
+  function emitCachedUsage(model: string, entry: CacheEntry): void {
+    const usage = entry.usage;
+    if (usage === null) {
+      log.debug(
+        `candidate service: cache entry ${entry.key} has no usage blob; its cache hit cannot be priced counterfactually`,
+      );
+      return;
+    }
+    emit({
+      type: 'llm:usage',
+      model,
+      usage,
+      usdBilled: 0,
+      usdCounterfactual: usdOf(model, usage),
+      cacheHit: true,
+      latencyMs: 0,
+    });
+  }
+
   async function callTransport(prepared: Prepared, slotId: string | null): Promise<LlmResult> {
     emit({
       type: 'llm:request',
@@ -449,6 +482,9 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       usage: call.usage,
       usdBilled: usd,
       usdCounterfactual: usd,
+      // Emitted exactly once per cold call, so the run record can never
+      // double-count it against the hit path below (B2).
+      cacheHit: false,
       latencyMs: call.latencyMs,
     });
     return call;
@@ -467,6 +503,7 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       const prepared = prepareSingle(req, attempt === 0 ? undefined : RETRY_TEMPERATURE);
       const hit = await lookup(req, prepared.key);
       if (hit !== undefined) {
+        emitCachedUsage(prepared.model, hit);
         writeRecord({
           req,
           prepared,
@@ -547,6 +584,7 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
     }
 
     const serveHit = (req: CandidateRequest, index: number, hit: CacheEntry): void => {
+      emitCachedUsage(prepared.model, hit);
       writeRecord({
         req,
         prepared,
