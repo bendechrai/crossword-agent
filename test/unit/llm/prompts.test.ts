@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -11,12 +12,26 @@ import {
   renderPrompt,
   type RenderedPrompt,
 } from '../../../src/llm/prompts.js';
+import { getBuiltins } from '../../../src/profiles/builtins.js';
+import { ProfileSchema } from '../../../src/profiles/schema.js';
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../fixtures/prompts/', import.meta.url));
 const SCHEMA_PATH = fileURLToPath(
   new URL('../../../schemas/candidate-response.schema.json', import.meta.url),
 );
 const PROMPTS_SOURCE = fileURLToPath(new URL('../../../src/llm/prompts.ts', import.meta.url));
+const SRC_DIR = fileURLToPath(new URL('../../../src/', import.meta.url));
+
+/** Every `.ts` file under `dir`, recursively. */
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFiles(path));
+    else if (entry.name.endsWith('.ts')) out.push(path);
+  }
+  return out;
+}
 
 /**
  * Golden files are committed and compared byte for byte. Regenerate them with
@@ -112,7 +127,7 @@ const REASK_REQUEST: CandidateRequest = {
 /** The repair pass asking for something other than the answer it already has. */
 const REPAIR_REQUEST = request({
   slotId: '5A',
-  clue: 'Synthetic silk-like fabric',
+  clue: 'Artificial silk made from cellulose',
   length: 5,
   pattern: 'R?Y?N',
   title: 'Synthetic five',
@@ -135,7 +150,7 @@ const ESCALATE_REQUEST = request({
   n: 8,
   crossingContext: [
     { slotId: '8A', clue: 'Small parasitic insect', fill: 'LOUSE', confidence: 0.41 },
-    { slotId: '5A', clue: 'Synthetic silk-like fabric', fill: 'RAYON', confidence: 0.62 },
+    { slotId: '5A', clue: 'Artificial silk made from cellulose', fill: 'RAYON', confidence: 0.62 },
     { slotId: '7A', clue: 'Steer clear of', fill: null, confidence: 0 },
   ],
 });
@@ -144,11 +159,41 @@ const PLAIN = { inlineSchema: false };
 const INLINE = { inlineSchema: true };
 
 describe('PROMPT_VERSION', () => {
-  // B49: bumping this is a single-owner action (T31) that lands the regenerated
-  // cache and snapshots in the same commit. No feature task may bump it, and it
-  // is a bare "1", never "v1".
-  it('is the string "1" for all of v1 (acceptance 6)', () => {
-    expect(PROMPT_VERSION).toBe('1');
+  // B49: bumping this is a single-owner action that lands the regenerated cache
+  // and snapshots in the same commit. No feature task may bump it, and it is a
+  // bare digit, never "v2". T63 bumped it from "1" to "2" for the length
+  // self-check and the reworded clue_understood scale.
+  it('is the string "2" (T31 acceptance 6, as amended by T63)', () => {
+    expect(PROMPT_VERSION).toBe('2');
+  });
+
+  // The bump is only real if it reaches the B23 cache key, which is built from
+  // `profile.promptVersion` (candidates/service.ts -> util/hash.cacheKey), and
+  // the inference log's copy in llm/client.ts. A bump that changed the prompt
+  // bytes and left those behind would leave every key unchanged, so a
+  // pre-existing cache would answer version-2 prompts with version-1
+  // responses and `xw cache clear --prompt-version` would target the wrong
+  // entries. So no other module may spell a version out.
+  it('is what every built-in profile and the schema default carry', () => {
+    const profiles = Object.values(getBuiltins());
+    expect(profiles).toHaveLength(12);
+    for (const profile of profiles) {
+      expect(profile.promptVersion).toBe(PROMPT_VERSION);
+    }
+    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PROMPT_VERSION);
+  });
+
+  it('is the only place in src/ a prompt version literal is written', () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles(SRC_DIR)) {
+      if (file === PROMPTS_SOURCE) continue;
+      const text = readFileSync(file, 'utf8');
+      // `promptVersion: '1'`, `promptVersion = "2"`, `.default('1')` and so on.
+      if (/promptVersion\s*[:=]\s*['"][0-9]+['"]|PROMPT_VERSION\s*=\s*['"][0-9]+['"]/.test(text)) {
+        offenders.push(file);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -289,7 +334,7 @@ describe('escalate template (acceptance 4)', () => {
 
   it("carries every crossing slot's clue and current fill", () => {
     const text = userText(rendered);
-    expect(text).toContain('- 5A "Synthetic silk-like fabric": RAYON (confidence 0.62)');
+    expect(text).toContain('- 5A "Artificial silk made from cellulose": RAYON (confidence 0.62)');
     expect(text).toContain('- 7A "Steer clear of": not yet filled');
     expect(text).toContain('- 8A "Small parasitic insect": LOUSE (confidence 0.41)');
   });
@@ -449,6 +494,159 @@ describe('inline schema variant (acceptance 7, B9)', () => {
     expect(plain).not.toContain('JSON Schema');
     expect(plain).not.toContain('Worked example');
     expect(systemText(rendered).startsWith(plain)).toBe(true);
+  });
+});
+
+/** The line every single-clue template ends on: slot id, exact count, self-check. */
+function lastAskLine(slotId: string, length: number): string {
+  return (
+    `Every answer for ${slotId} is exactly ${length} letters long: count each answer's letters ` +
+    `into "notes" first, and put only the answers that come to ${length} into "candidates".`
+  );
+}
+
+/**
+ * T63 acceptance 1. The bench's dominant rejection reason is a wrong-length
+ * answer (85% of all rejections), from a prompt that stated the length once,
+ * many lines above the answer. Both halves of the fix are asserted here: the
+ * count is restated as the LAST line the model reads, and the self-check
+ * ("count it, drop the ones that do not match") is in the system message of
+ * all three templates.
+ */
+describe('length discipline (T63, acceptance 1)', () => {
+  const singles: ReadonlyArray<{ kind: string; rendered: RenderedPrompt; last: string }> = [
+    { kind: 'seed', rendered: renderPrompt(SEED_REQUEST, 'seed', PLAIN), last: lastAskLine('9A', 7) },
+    {
+      kind: 'constrained',
+      rendered: renderPrompt(REASK_REQUEST, 'constrained', PLAIN),
+      last: lastAskLine('12A', 5),
+    },
+    {
+      kind: 'escalate',
+      rendered: renderPrompt(ESCALATE_REQUEST, 'escalate', PLAIN),
+      last: lastAskLine('6D', 3),
+    },
+  ];
+
+  for (const { kind, rendered, last } of singles) {
+    it(`${kind}: restates the exact letter count as the last line before the answer`, () => {
+      const lines = userText(rendered).split('\n');
+      expect(lines[lines.length - 1]).toBe(last);
+    });
+
+    it(`${kind}: carries the count-and-drop self-check in the system message`, () => {
+      const system = systemText(rendered);
+      expect(system).toContain(
+        'Write "clue_understood" first, then "notes" as one short line holding one ANSWER=count ' +
+          'entry per answer you mean to offer',
+      );
+      expect(system).toContain(
+        'delete it from "notes" and never write it into "candidates"',
+      );
+      expect(system).toContain(
+        'Every answer has exactly the number of letters the clue asks for, and you check that ' +
+          'before you commit to it',
+      );
+    });
+  }
+
+  it('says "1 letter" rather than "1 letters" in the restatement too', () => {
+    const text = userText(renderPrompt(request({ length: 1, pattern: '?' }), 'seed', PLAIN));
+    expect(
+      text.endsWith(
+        'is exactly 1 letter long: count each answer\'s letters into "notes" first, and put only ' +
+          'the answers that come to 1 into "candidates".',
+      ),
+    ).toBe(true);
+  });
+
+  it('ends the batched user message with the same rule, keyed to each clue\'s length', () => {
+    const lines = userText(renderBatchedSeedPrompt(BATCH_REQUESTS, PLAIN)).split('\n');
+    expect(lines[lines.length - 1]).toBe(
+      'Every answer is exactly as many letters as its own clue\'s "length" above: count each ' +
+        'answer\'s letters into that result\'s "notes" first, and put only the answers that come ' +
+        'to that clue\'s "length" into its "candidates".',
+    );
+  });
+
+  it('shows the counts in every one-shot example, and the counts are right', () => {
+    for (const system of [
+      systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE)),
+      systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE)),
+    ]) {
+      const notes = [...system.matchAll(/"notes": "([^"]+)"/g)].map((match) => match[1] ?? '');
+      expect(notes.length).toBeGreaterThanOrEqual(2);
+      for (const note of notes) {
+        for (const pair of note.split(' ')) {
+          const [answer, count] = pair.split('=');
+          expect(answer?.length).toBe(Number(count));
+        }
+      }
+    }
+  });
+
+  it('keeps every example answer at the length its own example request asked for', () => {
+    const system = systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE));
+    // "Clue 2D: ..." is asked at 5 letters, "Clue 5D: Charge" at 4.
+    expect(system).toContain('Clue 2D: Chaos and destruction');
+    expect(system).toContain('Clue 5D: Charge');
+    expect(system).toContain(lastAskLine('2D', 5));
+    expect(system).toContain(lastAskLine('5D', 4));
+  });
+});
+
+/** Every `clue_understood` value shown in an example (never the schema's type). */
+function exampleUnderstood(text: string): number[] {
+  return [...text.matchAll(/"clue_understood": ([0-9.]+)/g)].map((match) => Number(match[1]));
+}
+
+/**
+ * T63 acceptance 2. 5,258 of the 5,279 parsed seed responses on the canonical
+ * bench reported exactly 0.9, which is the number version 1's single example
+ * hard-coded, so the escalation trigger at 0.4 could never fire.
+ */
+describe('clue_understood guidance (T63, acceptance 2)', () => {
+  const system = systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE));
+
+  it('describes the scale in words rather than by example alone', () => {
+    expect(system).toContain(
+      '1.0 only when the clue is unambiguous and your best answer is certain',
+    );
+    expect(system).toContain(
+      'around 0.5 when you understand what the clue is asking but the answer is a guess',
+    );
+    expect(system).toContain('below 0.3 when the clue itself is opaque to you');
+    expect(system).toContain('the same number on every clue tells the solver nothing');
+  });
+
+  it('says it is a routing signal and not a score for any answer', () => {
+    expect(system).toContain('It is a routing signal, not a score for any answer');
+  });
+
+  it('varies the single form\'s examples, with one at or below 0.5', () => {
+    const values = exampleUnderstood(system);
+    expect(values).toEqual([1, 0.5]);
+    expect(Math.min(...values)).toBeLessThanOrEqual(0.5);
+  });
+
+  it('varies the batched form\'s examples too, with one at or below 0.5', () => {
+    const values = exampleUnderstood(systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE)));
+    expect(values).toEqual([1, 0.5]);
+  });
+
+  it('hard-codes 0.9 nowhere, in any template', () => {
+    for (const kind of ['seed', 'constrained', 'escalate'] as const) {
+      expect(exampleUnderstood(systemText(renderPrompt(SEED_REQUEST, kind, INLINE)))).not.toContain(
+        0.9,
+      );
+    }
+  });
+
+  it('shows the low example on a clue that is in neither synthetic fixture', () => {
+    // A worked example carrying a fixture's own answer would leak it into every
+    // prompt that fixture's run sends.
+    expect(system).toContain('Clue 5D: Charge');
+    expect(system).not.toContain('Former partner');
   });
 });
 

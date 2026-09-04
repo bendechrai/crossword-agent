@@ -102,7 +102,7 @@ const CLUES_5X5_SPEC_ORDER: ReadonlyArray<{ id: string; text: string }> = [
   { id: '3A', text: 'Greek letter of a famous ratio' },
   { id: '3D', text: 'Calm self-assurance' },
   { id: '4D', text: 'Alphabetical list at the back of a book' },
-  { id: '5A', text: 'Synthetic silk-like fabric' },
+  { id: '5A', text: 'Artificial silk made from cellulose' },
   { id: '6D', text: 'The person being addressed' },
   { id: '7A', text: 'Steer clear of' },
   { id: '8A', text: 'Small parasitic insect' },

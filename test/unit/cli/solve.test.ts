@@ -527,14 +527,30 @@ describe('T61: the printed cost block labels billed and counterfactual separatel
       expect(figures.billed).toBe(0);
       expect(figures.counterfactual).toBeGreaterThan(0);
 
+      type TierCalls = { usdBilled: number; usdCounterfactual: number; cacheHits: number };
       const record = JSON.parse(readFileSync(out, 'utf8')) as {
-        calls: { tier1: { usdBilled: number; usdCounterfactual: number; cacheHits: number } };
+        calls: { tier1: TierCalls; tier2: TierCalls };
       };
       expect(record.calls.tier1.usdBilled).toBe(0);
       expect(record.calls.tier1.usdCounterfactual).toBeGreaterThan(0);
       expect(record.calls.tier1.cacheHits).toBeGreaterThan(0);
       // The printed block and the written record are the same numbers.
-      expect(record.calls.tier1.usdCounterfactual).toBeCloseTo(figures.counterfactual, 4);
+      // `costFigures` sums both tiers, so the record side has to as well: this
+      // fixture reaches a cached tier-2 escalation since promptVersion 2 (T63)
+      // made `clue_understood` vary enough for the 0.4 trigger to fire.
+      //
+      // Three decimal places, not four: the cost block prints each tier
+      // rounded to 4dp independently, so summing the two printed figures
+      // carries up to 2 x 5e-5 of rounding error against the record's
+      // unrounded sum - more than a 4dp `toBeCloseTo` allows. A 4dp bound
+      // passed only while the two roundings happened to cancel, and stopped
+      // passing the moment the cache changed (T63's fixture clue fix moved
+      // tier-1 to $0.0045 and tier-2 to $0.0025, printing $0.0070 against a
+      // true $0.0069). 3dp still pins both tiers to the tenth of a cent,
+      // which is what this assertion is actually for.
+      expect(
+        record.calls.tier1.usdCounterfactual + record.calls.tier2.usdCounterfactual,
+      ).toBeCloseTo(figures.counterfactual, 3);
     } finally {
       vi.unstubAllGlobals();
     }

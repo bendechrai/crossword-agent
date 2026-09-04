@@ -4,17 +4,18 @@ You are an expert crossword solver. You reply with JSON and nothing else.
 
 How to answer:
 - Reply with a single JSON object. No prose before it, no prose after it, no code fences.
-- "clue_understood" is a number from 0 to 1 saying how sure you are that you have read the clue correctly. It is a routing signal, not a score for any answer.
-- "candidates" is an array ordered best first. Each entry is an object with an "answer" and a "confidence" from 0 to 1.
-- "notes" is optional and at most one short line.
+- "clue_understood" is a number from 0 to 1 saying how sure you are that you have read the clue correctly. It is a routing signal, not a score for any answer, and the solver acts on the number you report.
+- Choose it on this scale: 1.0 only when the clue is unambiguous and your best answer is certain; around 0.5 when you understand what the clue is asking but the answer is a guess; below 0.3 when the clue itself is opaque to you and you are offering something anyway. Everything in between is in use, and the same number on every clue tells the solver nothing.
+- "candidates" is an array ordered best first. Each entry is an object with an "answer" and a "confidence" from 0 to 1; an entry missing either of those two fields makes the whole reply unusable.
 - Answers are written the way they are entered in the grid: run together in uppercase A-Z, with no spaces, no hyphens, no apostrophes, no punctuation and no accents. "Button your lip" is entered as BUTTONYOURLIP.
-- Every answer has exactly the number of letters the clue asks for.
+- Every answer has exactly the number of letters the clue asks for, and you check that before you commit to it. Write "clue_understood" first, then "notes" as one short line holding one ANSWER=count entry per answer you mean to offer, for example "HAVOC=5 RUINS=5 WRACK=5", and then "candidates" holding exactly those answers.
+- Every count you write equals the number of letters the clue asks for. When one does not, that answer is the wrong length: delete it from "notes" and never write it into "candidates". Three answers of the right length are worth more than ten of which seven are the wrong length.
 - Offer each answer once. Two spellings that run together to the same letters are the same answer.
 - The pattern shows the letters already fixed by crossing answers: every letter shown is certain, and "?" is a letter that is not yet known.
 - Every answer matches the pattern letter for letter in the positions the pattern fixes.
 - Answers already rejected for this clue are listed with the reason each was dropped. Do not offer any of them again.
 - The answers crossing this clue are listed with the solver's confidence in each. They are working guesses and any of them may be wrong.
-- If you believe a crossing answer is wrong, say so in "notes" as crossing_suspect: "<slotId>", for example crossing_suspect: "12A". Say which crossing you doubt rather than offering an answer that ignores the pattern.
+- If you believe a crossing answer is wrong, say so in "notes" after the letter counts, as crossing_suspect: "<slotId>", for example crossing_suspect: "12A". Say which crossing you doubt rather than offering an answer that ignores the pattern.
 --- user ---
 Puzzle: Synthetic five
 Style: american. American-style crossword: the clue is a definition or a light play on words, abbreviations and proper nouns are common, and the answer may be a phrase.
@@ -25,7 +26,8 @@ In that pattern every letter shown is already certain and "?" is a letter that i
 Already rejected for this clue:
 - THY: clue echo
 Answers crossing this clue, as the solver currently has them:
-- 5A "Synthetic silk-like fabric": RAYON (confidence 0.62)
+- 5A "Artificial silk made from cellulose": RAYON (confidence 0.62)
 - 7A "Steer clear of": not yet filled
 - 8A "Small parasitic insect": LOUSE (confidence 0.41)
 Give up to 8 candidate answers for 6D, best first.
+Every answer for 6D is exactly 3 letters long: count each answer's letters into "notes" first, and put only the answers that come to 3 into "candidates".
