@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-7x7--baseline--20260903T204713Z--1df1aeb1",
-  "timestamp": "2026-09-03T20:47:13.162Z",
+  "runId": "synthetic-7x7--baseline--20260904T160043Z--1df1aeb1",
+  "timestamp": "2026-09-04T16:00:43.043Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-7x7",
@@ -725,6 +725,6 @@
     "proposals": 995,
     "accepted": 0
   },
-  "wallMs": 9,
+  "wallMs": 18,
   "budgetHits": []
 }

@@ -14,9 +14,6 @@ data/
 
 # Fetched puzzles are never committed (B46); the fixtures are.
 puzzles/**
-# git cannot re-include files under an excluded directory unless the directory itself is re-included first
-!puzzles/fixtures
-!puzzles/fixtures/**
 
 .env
 .env.*

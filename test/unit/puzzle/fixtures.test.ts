@@ -1,128 +1,89 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { loadPuzzleWithSolution } from '../../../src/puzzle/loader.js';
 import { repoRoot } from '../../../src/util/fs.js';
-import type { PuzzleWithSolution } from '../../../src/puzzle/types.js';
+import type { NormalisedPuzzleFile } from '../../../src/puzzle/types.js';
 
 /**
- * T48: the four hand-picked, licence-clean `.xd` fixtures under
- * `puzzles/fixtures/` (A3). This test owns the post-condition checks the T48
- * task text asks for: each fixture parses through the real loader
- * (src/puzzle/loader.ts -> src/puzzle/adapters/xd.ts, T25) without error and
- * passes the B42 leakage check, plus the size/count/date bookkeeping the
- * acceptance list names. It does not duplicate T25's own xd.test.ts, which
- * covers the adapter's parsing rules with synthetic fixtures; this file only
- * asserts the *real corpus* fixtures this task selected are clean.
+ * T56: no real crossword puzzle is committed to this repository in any form
+ * (Ben's no-distribution policy, superseding A3/B47 - see
+ * docs/decisions/2026-09-03-spec-review.md's dated addendum). This replaces
+ * T48's fixtures.test.ts, which asserted properties of the four real,
+ * pre-1965 NYT `.xd` fixtures T56 deleted from `puzzles/fixtures/`.
+ *
+ * This file instead owns two checks: that the deleted fixture directory
+ * (`puzzles/fixtures/`) is gone and that `.gitignore` unconditionally
+ * ignores everything else under `puzzles/`, and that the two synthetic
+ * fixtures - the only puzzles this repository ever commits - still satisfy
+ * the B42 loader post-condition (no clue leaks any slot's solution).
+ *
+ * The first check deliberately does NOT walk all of `puzzles/`: that
+ * directory is also where `xw fetch` writes locally fetched puzzles
+ * (src/util/fs.ts's `resolvePuzzlesDir`, src/cli/fetch.ts), which are
+ * gitignored and never committed but legitimately present on a
+ * contributor's or CI's disk (e.g. from running the CLI against a real
+ * source). A recursive walk asserting zero files there would fail outside
+ * a pristine checkout even though nothing is tracked. The property this
+ * task actually needs - nothing under `puzzles/` can be tracked by git - is
+ * instead proven the environment-safe way, without the `git` binary
+ * (`src/util/git.ts`'s own doc comment records that the container this
+ * suite runs in has none): `puzzles/fixtures/` (the only place real
+ * fixtures ever lived) must not exist on disk at all, and `.gitignore` must
+ * contain an unconditional `puzzles/**` line and no `!puzzles`-prefixed
+ * re-include line - so nothing under `puzzles/` can be newly added without
+ * `git add -f`. `git ls-files puzzles` printing nothing is the acceptance
+ * criterion the orchestrator checks directly against the commit.
+ *
+ * The synthetic B42 property is also covered by the frozen
+ * `test/contract/schemas.test.ts`; restating it here is deliberate, matching
+ * the plan's deliverable text for this task, and cheap insurance should that
+ * contract test ever narrow its own coverage.
  */
 
-const FIXTURES_DIR = join(repoRoot(), 'puzzles', 'fixtures');
-const MAX_FIXTURE_BYTES = 20 * 1024;
-const PRE_1965 = '1965-01-01';
-const REQUIRED_FIXTURES_MD_FIELDS = [
-  'Source URL',
-  'Publication date',
-  'Grid size',
-  'Public-domain basis',
-] as const;
+const ROOT = repoRoot();
+const SYNTHETIC_FIXTURES = ['synthetic-5x5', 'synthetic-7x7'] as const;
 
-function xdFixtureNames(): string[] {
-  return readdirSync(FIXTURES_DIR)
-    .filter((name) => name.endsWith('.xd'))
-    .sort();
+function readSyntheticFixture(name: string): NormalisedPuzzleFile {
+  const raw = readFileSync(join(ROOT, 'test/fixtures/puzzles', `${name}.json`), 'utf8');
+  return JSON.parse(raw) as NormalisedPuzzleFile;
 }
 
-/** The letters a slot's cells hold in the solution grid. */
-function answerOf(puzzle: PuzzleWithSolution, cells: ReadonlyArray<readonly [number, number]>): string {
-  return cells
-    .map(([row, col]) => puzzle.solution[row]?.[col] ?? '')
-    .join('')
-    .toUpperCase();
-}
-
-/**
- * B42: no clue text may carry any slot's solution as a substring. Same check
- * as test/unit/puzzle/xd.test.ts's post-condition, restated here since that
- * file is owned by T25, not this task.
- */
-function expectNoSolutionLeak(puzzle: PuzzleWithSolution): void {
+/** B42: no `Slot.clue` may contain any slot's solution as a substring. */
+function expectNoSolutionLeak(puzzle: NormalisedPuzzleFile): void {
   expect(puzzle.slots.length).toBeGreaterThan(0);
-  const answers = puzzle.slots.map((slot) => answerOf(puzzle, slot.cells));
+  const answers = puzzle.slots.map((slot) =>
+    slot.cells.map(([row, col]) => puzzle.solution[row]?.[col] ?? '').join(''),
+  );
   for (const answer of answers) expect(answer.length).toBeGreaterThan(0);
 
   const leaks: string[] = [];
   for (const slot of puzzle.slots) {
-    const clue = slot.clue.toUpperCase();
+    const stripped = slot.clue.toUpperCase().replace(/[^A-Z]/g, '');
     for (const answer of answers) {
-      if (clue.includes(answer)) leaks.push(`${slot.id} carries ${answer}`);
+      if (stripped.includes(answer.toUpperCase())) leaks.push(`${slot.id} carries ${answer}`);
     }
   }
   expect(leaks).toEqual([]);
 }
 
-describe('puzzles/fixtures/*.xd (T48 licence-clean corpus fixtures)', () => {
-  it('acceptance 1: exactly four .xd files exist, each under 20 KB', () => {
-    const names = xdFixtureNames();
-    expect(names).toHaveLength(4);
-    for (const name of names) {
-      const bytes = statSync(join(FIXTURES_DIR, name)).size;
-      expect(bytes).toBeLessThan(MAX_FIXTURE_BYTES);
-    }
+describe('T56: no real puzzles in the repository; synthetic-only fixtures', () => {
+  it('acceptance 1: puzzles/fixtures/ (the former real-puzzle directory) is gone', () => {
+    expect(existsSync(join(ROOT, 'puzzles/fixtures'))).toBe(false);
   });
 
-  // Acceptance 5 (`git check-ignore puzzles/fixtures/x.xd` reports the path
-  // is not ignored) is not asserted here: the frozen .gitignore's
-  // `!puzzles/fixtures/**` negation cannot take effect while `puzzles/**`
-  // excludes the `puzzles/fixtures` directory itself from traversal (a
-  // well-known gitignore limitation - a negated pattern has no effect if a
-  // parent directory is excluded), and .gitignore is a frozen file this task
-  // may not edit. The fixtures are committed anyway via `git add -f`; see the
-  // PR's deviations note for the one-line fix (`!puzzles/fixtures` added
-  // before `!puzzles/fixtures/**`) a future contract-owning task should make.
+  it('acceptance 1: .gitignore ignores all of puzzles/ unconditionally, with no re-include', () => {
+    const gitignore = readFileSync(join(ROOT, '.gitignore'), 'utf8');
+    const lines = gitignore.split(/\r?\n/);
+    expect(lines).toContain('puzzles/**');
+    const reincludes = lines.filter((line) => line.trimStart().startsWith('!puzzles'));
+    expect(reincludes).toEqual([]);
+  });
 
-  for (const name of xdFixtureNames()) {
-    it(`${name} parses through loadPuzzleWithSolution and has no B42 leak`, async () => {
-      const puzzle = await loadPuzzleWithSolution(join(FIXTURES_DIR, name));
-      expect(puzzle.parsedBy).toBe('xd-hand');
-      expectNoSolutionLeak(puzzle);
+  for (const name of SYNTHETIC_FIXTURES) {
+    it(`${name}: still satisfies the B42 no-leak post-condition`, () => {
+      expectNoSolutionLeak(readSyntheticFixture(name));
     });
   }
-
-  describe('FIXTURES.md', () => {
-    const fixturesMdPath = join(FIXTURES_DIR, 'FIXTURES.md');
-    const text = readFileSync(fixturesMdPath, 'utf8');
-    // One `##` section per fixture, keyed by its .xd filename.
-    const sections = text.split(/\n(?=## )/).filter((s) => s.startsWith('## '));
-
-    it('acceptance 3: has one section per fixture with all four required fields, non-empty', () => {
-      const names = xdFixtureNames();
-      const fixtureSections = sections.filter((s) =>
-        names.some((name) => s.startsWith(`## ${name}`)),
-      );
-      expect(fixtureSections).toHaveLength(names.length);
-
-      for (const section of fixtureSections) {
-        for (const field of REQUIRED_FIXTURES_MD_FIELDS) {
-          const match = new RegExp(`- \\*\\*${field}:\\*\\*\\s*(.+)`).exec(section);
-          expect(match, `${field} present in section: ${section.slice(0, 40)}`).not.toBeNull();
-          expect((match?.[1] ?? '').trim().length).toBeGreaterThan(0);
-        }
-      }
-    });
-
-    it('acceptance 4: every recorded publication date is before 1965-01-01', () => {
-      const dateMatches = [...text.matchAll(/- \*\*Publication date:\*\*\s*(\d{4}-\d{2}-\d{2})/g)];
-      expect(dateMatches.length).toBeGreaterThanOrEqual(4);
-      for (const match of dateMatches) {
-        const date = match[1] ?? '';
-        expect(date < PRE_1965).toBe(true);
-      }
-    });
-
-    it('states the licence basis needs Ben\'s review before any redistribution claim', () => {
-      expect(text).toContain("Licence basis needs Ben's review before any redistribution claim");
-    });
-  });
 });

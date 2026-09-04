@@ -11,27 +11,29 @@ import { atomicWriteFile, repoRoot, resolveCacheDir } from '../src/util/fs.js';
 import { log, setLogLevel } from '../src/util/log.js';
 
 /**
- * T50 (B49): a network task, run deliberately and once by its author, never
- * in CI and never by any other task. It solves every committed fixture
- * through `src/cli/solve.ts`'s real `solveCommand` (T45) - the exact code
- * path `xw solve` runs - under the `baseline` profile with the network on,
- * so every seed/re-ask/escalation/repair candidate response the fixtures
- * need lands in the committed cache at `test/fixtures/cache/`. The
- * committed snapshot (`test/fixtures/runs/snapshots/<id>.json`) and the
- * measured letter accuracy (`test/fixtures/runs/bounds.json`) both come
- * from an **offline replay** against that same cache, not from the live
- * run's own record - see "Why an offline verification pass" below. Each
- * fixture's `bounds.json` entry also records which offline mode its
- * snapshot was captured with (`offlineMode: "strict" | "lenient"`), and
- * `test/integration/solve.test.ts` replays with that same mode.
+ * T50 (B49), narrowed by T56: a network task, run deliberately and never in
+ * CI and never by any other task. It solves every committed fixture through
+ * `src/cli/solve.ts`'s real `solveCommand` (T45) - the exact code path `xw
+ * solve` runs - under the `baseline` profile with the network on, so every
+ * seed/re-ask/escalation/repair candidate response the fixtures need lands
+ * in the committed cache at `test/fixtures/cache/`. The committed snapshot
+ * (`test/fixtures/runs/snapshots/<id>.json`) and the measured letter
+ * accuracy (`test/fixtures/runs/bounds.json`) both come from an **offline
+ * replay** against that same cache, not from the live run's own record - see
+ * "Why an offline verification pass" below. Each fixture's `bounds.json`
+ * entry also records which offline mode its snapshot was captured with
+ * (`offlineMode: "strict" | "lenient"`), and `test/integration/solve.test.ts`
+ * replays with that same mode.
  *
- * Orchestrator note (binding, narrower than the plan.md task text): only the
- * `baseline` profile is run here (not `no-repair`/`tier1-only` too), the
- * fixture set is T48's four american `.xd` puzzles plus T0's two synthetic
- * grids (six fixtures, not four), and the accuracy bound each fixture's
+ * T56 (no-distribution policy, superseding A3/B47 - see
+ * docs/decisions/2026-09-03-spec-review.md's dated addendum): no real
+ * crossword puzzle is committed to this repository in any form, including a
+ * cache entry, snapshot or bound derived from one. The fixture set is
+ * therefore T0's two synthetic grids only (`synthetic-5x5`,
+ * `synthetic-7x7`), not the four real `.xd` puzzles T48 once committed under
+ * `puzzles/fixtures/` (deleted by T56). The accuracy bound each fixture's
  * integration test asserts is derived from what was actually measured here
- * (`max(measuredLetters - 0.05, 0.10)`), not the spec's illustrative 0.92 -
- * 1950s NYT clues on a cheap tier-1 model are not assumed to clear 0.92.
+ * (`max(measuredLetters - 0.05, 0.10)`), not the spec's illustrative 0.92.
  *
  * Why a strict offline replay does not always converge, and why this script
  * takes only one live pass per fixture (T50 review finding 2 - the previous
@@ -135,26 +137,25 @@ const OFFLINE_PLACEHOLDER_KEY = 'offline-replay-placeholder-key';
 interface FixtureSpec {
   id: string;
   /**
-   * How `solveCommand`'s target resolves (B16): a real path for the four
-   * `.xd` fixtures (the extension-dispatch loader route), or `library` for
+   * How `solveCommand`'s target resolves (B16). Both fixtures are `library`:
    * the two synthetic `NormalisedPuzzleFile` fixtures under
    * `test/fixtures/puzzles/` - a bare `.json` path would dispatch through
    * the Guardian adapter instead (`src/puzzle/adapters/index.ts`'s own doc
    * comment: a normalised file is read through `puzzle/library.ts`, not the
-   * extension dispatcher), so those two are staged into a throwaway library
+   * extension dispatcher), so each is staged into a throwaway library
    * directory (`<tmp>/<source>/<id>.json`, matching the fixture's own
    * `source` field) and solved by id instead, exactly the pattern
-   * `test/unit/cli/solve.test.ts` (T45) already uses for this fixture.
+   * `test/unit/cli/solve.test.ts` (T45) already uses for this fixture. The
+   * `'path'` variant (a real file-path target, once used for the four real
+   * `.xd` fixtures T56 removed) is kept in the union rather than deleted,
+   * since `resolveTarget` below still handles it correctly for any future
+   * fixture that is a real file rather than a library entry.
    */
   kind: 'path' | 'library';
   path: string;
 }
 
 const FIXTURES: readonly FixtureSpec[] = [
-  { id: 'nyt-1950-10-12', kind: 'path', path: 'puzzles/fixtures/nyt-1950-10-12.xd' },
-  { id: 'nyt-1955-06-06', kind: 'path', path: 'puzzles/fixtures/nyt-1955-06-06.xd' },
-  { id: 'nyt-1959-04-24', kind: 'path', path: 'puzzles/fixtures/nyt-1959-04-24.xd' },
-  { id: 'nyt-1962-03-21', kind: 'path', path: 'puzzles/fixtures/nyt-1962-03-21.xd' },
   { id: 'synthetic-5x5', kind: 'library', path: 'test/fixtures/puzzles/synthetic-5x5.json' },
   { id: 'synthetic-7x7', kind: 'library', path: 'test/fixtures/puzzles/synthetic-7x7.json' },
 ];

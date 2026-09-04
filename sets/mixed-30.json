@@ -1,11 +1,11 @@
 {
   "name": "mixed-30",
-  "note": "30 puzzles for bench runs: 20 american, 10 cryptic. The four nyt-* entries below are real fixtures. The remaining 16 american and 10 cryptic entries are placeholders to be filled by `xw fetch` once a licence-clean corpus slice and Guardian cryptics are pulled locally. American entries are used to decide escalation policy and batch size (A1); decisions are made on the american stratum only.",
+  "note": "30 puzzles for bench runs: 20 american, 10 cryptic. Puzzles are fetched on demand and never committed to this repository (no-distribution policy); every entry below is a placeholder to be filled by `xw fetch` once a licence-clean corpus slice and Guardian cryptics are pulled locally. American entries are used to decide escalation policy and batch size (A1); decisions are made on the american stratum only.",
   "puzzles": [
-    { "id": "nyt-1950-10-12", "stratum": "american" },
-    { "id": "nyt-1955-06-06", "stratum": "american" },
-    { "id": "nyt-1959-04-24", "stratum": "american" },
-    { "id": "nyt-1962-03-21", "stratum": "american" },
+    { "id": "TODO-american-01", "stratum": "american" },
+    { "id": "TODO-american-02", "stratum": "american" },
+    { "id": "TODO-american-03", "stratum": "american" },
+    { "id": "TODO-american-04", "stratum": "american" },
     { "id": "TODO-american-05", "stratum": "american" },
     { "id": "TODO-american-06", "stratum": "american" },
     { "id": "TODO-american-07", "stratum": "american" },
