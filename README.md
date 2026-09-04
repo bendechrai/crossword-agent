@@ -22,6 +22,7 @@ cp .env.example .env            # then add NEBIUS_API_KEY
 docker compose up -d
 ./xw fetch guardian --series quick --limit 5
 ./xw solve guardian-quick-17342 -v
+./xw show guardian-quick-17342 --run   # re-render that run's grid later
 ```
 
 `docker compose up -d` builds a `node:22-slim` image, installs dependencies

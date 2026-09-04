@@ -1462,6 +1462,20 @@ Starts once every Wave 3 task is merged.
 - Acceptance: 1. tierRouter tests cover seed, constrained and escalate purposes on a reasoning model and a non-reasoning model. 2. Integration tests pass with offlineMode strict for both synthetic fixtures, or the report names the exact missing key. 3. preflight passes with no network in the test container. 4. The spike doc has the dated follow-up section.
 - Out of scope: real puzzles; the bench runs; calibration.
 
+## Wave 6: features (2026-09-04)
+
+### T59: xw show --run: render a past run's answers
+- Workstream: C (CLI)
+- Model: sonnet
+- Depends on: T30, T45
+- Owns: src/cli/show.ts, src/eval/runs.ts (new), test/unit/cli/show.test.ts, test/unit/eval/runs.test.ts; pre-authorised: the `--run [runId]` option in src/cli/index.ts and src/cli/options.ts, the `show` entry in docs/spec.md's CLI reference, one README usage line.
+- Reads (must not edit): src/eval/runRecorder.ts (how run records are written and where: the runs directory resolution in src/util/fs.ts), src/eval/types.ts (RunRecord shape, especially perSlot filled answers and puzzle.id, timestamp, profile), src/puzzle/library.ts, the existing --solution rendering path in src/cli/show.ts.
+- Spec sections: CLI reference (show); Metrics and run records.
+- Deliverable: `xw show <id> --run [runId]` renders the grid the solver PRODUCED in a past run instead of the true solution, using exactly the same grid renderer and the same clue lists that `--solution` uses (byte-identical output format; only the letters differ), preceded by one header line `Run <runId> (<ISO timestamp>, profile <name>): letters <x.xxx> words <x.xxx> perfect <yes|no>` taken from the run record. Cells no slot filled render as blank in whatever way the renderer shows an empty cell (pick the renderer's existing empty-cell glyph; do not invent a new one). A missing runId (`--run` with no value) selects the most recent run record for that puzzle id (by the record's timestamp) in the runs directory; an explicit value matches a full runId or a unique prefix. Implement the record lookup in src/eval/runs.ts: `listRuns(runsDir, puzzleId)`, `latestRun(runsDir, puzzleId)`, `findRun(runsDir, runIdOrPrefix)`, each reading `*.json` run records, tolerating unreadable or foreign JSON files by skipping them with a warning, and never loading `.events.jsonl` files. Reconstruct the letters matrix from the run record's per-slot filled answers placed along each slot's cells from the normalised puzzle (Slot start row/col, direction, length); later slots must agree with earlier ones at crossings (they do, since they came from one grid), but if they disagree, prefer the across answer and warn once. Errors: no run for the puzzle -> NOT_FOUND (exit 3) with hint `run: xw solve <id>`; runId not found -> NOT_FOUND; runId matches a record for a different puzzle -> USAGE (exit 2) naming both ids; ambiguous prefix -> USAGE listing the candidates. `--run` combined with `--solution` is a USAGE error.  Existing `xw show` behaviour with and without `--solution` must be unchanged (assert the existing tests still pass untouched).
+- Decisions baked in: reuse the renderer, do not fork it; runs directory comes from the same resolver the solve command uses (`--out` is not consulted; document that); commander option is `--run [runId]` so the bare flag yields `true` and means latest; the header line is the only addition to the output; no diff markers in this task (a later task can add `--run --diff`).
+- Acceptance: 1. With a temp runs dir holding two records for puzzle P (timestamps t1 < t2) and one for puzzle Q, `show P --run` renders t2's answers and the header names t2's runId. 2. `show P --run <t1 runId>` and `show P --run <unique prefix of t1>` render t1. 3. `show P --run <Q's runId>` exits 2 naming P and Q; an ambiguous prefix exits 2 listing both; an empty runs dir exits 3 with the hint. 4. When a run record's filled answers equal the solution, the grid and clue sections of `show P --run <id>` are byte-identical to `show P --solution` (compare captured stdout with the header line removed). 5. A partial run (some slots unfilled) renders blank cells and does not throw. 6. `--run` with `--solution` exits 2. 7. runs.ts skips a non-record JSON file and a `.events.jsonl` file in the runs dir with a warning and still returns the valid records. 8. preflight passes; existing show tests unchanged.
+- Out of scope: diff markers, watch-style colouring, changes to how runs are written.
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1527,8 +1541,9 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T56 | Remove real puzzles; synthetic-only fixtures | 5 | A | sonnet | T48,T50,T51,T52 | puzzles/fixtures (delete), test/fixtures/cache, test/fixtures/runs, integration tests, fixtures-refresh, sets |
 | T57 | Documentation follow-ups and bench-set contract test | 5 | J | sonnet | T52,T56 | README.md, docs/spec.md rows, decisions addendum, docs/benches/README.md, test/contract/sets.test.ts |
 | T58 | Reasoning-off for every tier-1 call; refresh synthetic cache (NETWORK) | 5 | E | opus | T49,T56 | src/llm/tierRouter.ts, its test, test/fixtures/cache, test/fixtures/runs, spike doc addendum |
+| T59 | xw show --run: render a past run's answers | 6 | C | sonnet | T30,T45 | src/cli/show.ts, src/eval/runs.ts, cli option, tests, docs |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3. Total 59, of which 57 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 1. Total 60, of which 58 are in v1 (M1-M5).
 
 Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 42.
 

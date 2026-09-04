@@ -99,6 +99,11 @@ export function buildProgram(): Command {
     .description('print a puzzle grid and its clue lists')
     .argument('<id>', 'puzzle id')
     .option('--solution', 'reveal the solution letters', false)
+    .option(
+      '--run [runId]',
+      'render the grid a past solve run produced instead of the true solution ' +
+        '(latest run for this puzzle when no id is given; a full run id or a unique prefix otherwise)',
+    )
     .action(async (id: string, opts: ShowOptions) => {
       await showCommand(id, opts, globalsFrom(program));
     });
