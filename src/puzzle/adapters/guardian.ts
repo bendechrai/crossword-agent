@@ -283,9 +283,14 @@ export const guardianAdapter: PuzzleAdapter = {
   parse(bytes, ctx) {
     const payload: unknown = JSON.parse(bytes.toString('utf8'));
     // The extension-dispatch entry point (a bare `.json` file, e.g.
-    // `xw solve <path>`) has no series to map to a style, so it defaults to
-    // "unknown" (T24 precedent). A caller who knows the series should call
-    // `parseGuardianPayload` directly with the resolved style instead.
-    return Promise.resolve(parseGuardianPayload(payload, ctx, { style: 'unknown' }));
+    // `xw solve <path>` or `xw fetch`, which routes every source through
+    // src/puzzle/loader.ts rather than SourceAdapter.normalise) has no
+    // series of its own to map to a style, so it honours `ctx.style` when
+    // the caller already resolved one (T60: `xw fetch` derives it from the
+    // Guardian source's series-bearing ref) and falls back to "unknown"
+    // (T24 precedent) otherwise. A caller that both knows the series and
+    // wants to skip the loader entirely can still call
+    // `parseGuardianPayload` directly with the resolved style.
+    return Promise.resolve(parseGuardianPayload(payload, ctx, { style: ctx.style ?? 'unknown' }));
   },
 };

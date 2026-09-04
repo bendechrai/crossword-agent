@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,8 +10,10 @@ import { fetchCommand } from '../../../src/cli/fetch.js';
 import type { FetchOptions, GlobalOptions } from '../../../src/cli/options.js';
 import { readIndex } from '../../../src/puzzle/library.js';
 import type { PuzzleExt } from '../../../src/puzzle/types.js';
-import { registerSource } from '../../../src/sources/registry.js';
-import type { PuzzleRef, SourceAdapter, SourceListOptions } from '../../../src/sources/types.js';
+import { createGuardianSource } from '../../../src/sources/guardian.js';
+import { registerSource, resetSources } from '../../../src/sources/registry.js';
+import type { FetchLike, PuzzleRef, SourceAdapter, SourceListOptions } from '../../../src/sources/types.js';
+import { createXdSource } from '../../../src/sources/xd.js';
 
 const GLOBAL: GlobalOptions = { color: false };
 
@@ -234,5 +236,150 @@ describe('fetchCommand', () => {
       limit: 5,
       path: '/some/path.zip',
     });
+  });
+});
+
+/**
+ * T60: `xw fetch` derives `style` (and passes through `date`) from the
+ * source's own ref rather than always landing on `unknown`, for the two
+ * source adapters registered so far. These tests exercise the *real*
+ * `createGuardianSource`/`createXdSource` adapters (not the hand-rolled
+ * stub above, whose `list`/`download` bypass ref-shape questions entirely),
+ * with `fetch` injected so nothing reaches the network (per the guardian
+ * source's own test suite convention).
+ */
+describe('fetchCommand: style/date passthrough from real source refs (T60)', () => {
+  interface MockedResponse {
+    status: number;
+    body?: string;
+  }
+
+  function fakeFetch(responses: Record<string, MockedResponse>): FetchLike {
+    return vi.fn((input: string) => {
+      const entry = responses[input];
+      if (entry === undefined) {
+        return Promise.reject(new Error(`unexpected fetch: ${input}`));
+      }
+      return Promise.resolve(new Response(entry.body ?? '', { status: entry.status }));
+    });
+  }
+
+  function guardianPuzzleUrl(series: string, id: number): string {
+    return `https://www.theguardian.com/crosswords/${series}/${String(id)}.json`;
+  }
+
+  function guardianSeriesPageUrl(series: string): string {
+    return `https://www.theguardian.com/crosswords/series/${series}`;
+  }
+
+  /** A minimal series page: one anchor naming `id` as the latest puzzle. */
+  function guardianSeriesHtml(series: string, id: number): string {
+    return `<a href="/crosswords/${series}/${String(id)}">Crossword No ${String(id)}</a>`;
+  }
+
+  const GUARDIAN_PAYLOAD = readFixtureBytes('sources/guardian-list-sample.json').toString('utf8');
+  const INSTANT_SLEEP = (): Promise<void> => Promise.resolve();
+
+  beforeEach(() => {
+    // Belt and braces, matching src/sources/guardian.ts's own test suite:
+    // every test below injects `fetch` explicitly, so this should never
+    // fire, but it turns a silent fallthrough to the real network into a
+    // hard failure if it ever did.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      throw new Error('a test tried to reach the real network via globalThis.fetch');
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetSources();
+  });
+
+  it('a Guardian cryptic-series fetch normalises to style cryptic (acceptance 1)', async () => {
+    const dir = tempDir();
+    const fetch = fakeFetch({
+      [guardianSeriesPageUrl('cryptic')]: { status: 200, body: guardianSeriesHtml('cryptic', 30100) },
+      [guardianPuzzleUrl('cryptic', 30100)]: { status: 200, body: GUARDIAN_PAYLOAD },
+    });
+    registerSource(createGuardianSource({ fetch, now: () => 0, sleep: INSTANT_SLEEP }));
+
+    await fetchCommand('guardian', options({ out: dir, series: 'cryptic', limit: 1 }), GLOBAL);
+
+    const rows = await readIndex({ puzzlesDir: dir });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe('guardian-cryptic-30100');
+    expect(rows[0]?.style).toBe('cryptic');
+    // src/sources/guardian.ts's list() attaches no `date` to the refs it
+    // returns (no per-puzzle date signal exists in v1) - the date
+    // passthrough this task adds must not invent one, so it stays absent,
+    // exactly as it was before this fix.
+    expect(rows[0]?.date).toBeNull();
+
+    const normalisedPath = join(dir, 'guardian', 'guardian-cryptic-30100.json');
+    const written = JSON.parse(readFileSync(normalisedPath, 'utf8')) as { style?: string; date?: string };
+    expect(written.style).toBe('cryptic');
+    expect(written.date).toBeUndefined();
+  });
+
+  it('a Guardian quick-series fetch normalises to the mapped style quick (acceptance 2)', async () => {
+    const dir = tempDir();
+    const fetch = fakeFetch({
+      [guardianSeriesPageUrl('quick')]: { status: 200, body: guardianSeriesHtml('quick', 15900) },
+      [guardianPuzzleUrl('quick', 15900)]: { status: 200, body: GUARDIAN_PAYLOAD },
+    });
+    registerSource(createGuardianSource({ fetch, now: () => 0, sleep: INSTANT_SLEEP }));
+
+    await fetchCommand('guardian', options({ out: dir, series: 'quick', limit: 1 }), GLOBAL);
+
+    const rows = await readIndex({ puzzlesDir: dir });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe('guardian-quick-15900');
+    expect(rows[0]?.style).toBe('quick');
+  });
+
+  it('the xd path still yields style american and the date from the path (acceptance 3)', async () => {
+    const dir = tempDir();
+    // A self-contained, fully-clued `.xd` fixture written to its own temp
+    // corpus dir, rather than reusing test/fixtures/sources/xd-mini/ (T27):
+    // that fixture's grid has an unclued down run (no clue names the number
+    // the numbering check computes for it), which is fine for T27's own
+    // list()-only tests but fails the full round-trip through the real
+    // xd-hand adapter this test exercises. Same grid as
+    // test/fixtures/puzzles/synthetic-5x5.xd (T0), which every clue,
+    // including the one xd-mini omits.
+    const xdCorpusDir = tempDir();
+    const xdText = [
+      'Title: T60 xd style test',
+      'Date: 1963-05-01',
+      '',
+      'OH#PI',
+      'RAYON',
+      'AVOID',
+      'LOUSE',
+      '#C#EX',
+      '',
+      'A1. Cry of surprise ~ OH',
+      'A3. Greek letter of a famous ratio ~ PI',
+      'A5. Synthetic silk-like fabric ~ RAYON',
+      'A7. Steer clear of ~ AVOID',
+      'A8. Small parasitic insect ~ LOUSE',
+      'A9. Former partner ~ EX',
+      '',
+      'D1. Spoken rather than written ~ ORAL',
+      'D2. Chaos and destruction ~ HAVOC',
+      'D3. Calm self-assurance ~ POISE',
+      'D4. Alphabetical list at the back of a book ~ INDEX',
+      'D6. The person being addressed ~ YOU',
+      '',
+    ].join('\n');
+    writeFileSync(join(xdCorpusDir, '1963-05-01-old-puzzle.xd'), xdText, 'utf8');
+    registerSource(createXdSource({ path: xdCorpusDir }));
+
+    await fetchCommand('xd', options({ out: dir, limit: 1 }), GLOBAL);
+
+    const rows = await readIndex({ puzzlesDir: dir });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.style).toBe('american');
+    expect(rows[0]?.date).toBe('1963-05-01');
   });
 });
