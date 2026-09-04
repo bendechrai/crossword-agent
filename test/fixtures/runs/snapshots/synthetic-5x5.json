@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-5x5--baseline--20260904T160043Z--1df1aeb1",
-  "timestamp": "2026-09-04T16:00:43.016Z",
+  "runId": "synthetic-5x5--baseline--20260904T161654Z--1df1aeb1",
+  "timestamp": "2026-09-04T16:16:54.507Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-5x5",
@@ -65,9 +65,9 @@
     "tier2": "deepseek-ai/DeepSeek-V4-Pro"
   },
   "accuracy": {
-    "letters": 1,
-    "words": 1,
-    "perfect": true,
+    "letters": 0.9545454545454546,
+    "words": 0.8181818181818182,
+    "perfect": false,
     "emptyCells": 0
   },
   "perSlot": [
@@ -76,16 +76,16 @@
       "clue": "Cry of surprise",
       "length": 2,
       "truth": "OH",
-      "filled": "OH",
-      "correct": true,
+      "filled": "OM",
+      "correct": false,
       "producedBy": 1,
       "batchIndex": null,
       "truthInCandidates": true,
       "truthRank": 2,
       "rejectCounts": {
-        "length": 7,
+        "length": 11,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 16,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
@@ -95,7 +95,7 @@
       "usd": 0,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 3,
+      "candidatesSeen": 11,
       "pickedRank": 2
     },
     {
@@ -110,11 +110,11 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 8,
+        "length": 12,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 14,
         "clue-echo": 0,
-        "duplicate": 0,
+        "duplicate": 2,
         "rejected-before": 0
       },
       "parseFailures": 0,
@@ -122,7 +122,7 @@
       "usd": 0,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 2,
+      "candidatesSeen": 4,
       "pickedRank": 0
     },
     {
@@ -130,16 +130,16 @@
       "clue": "Chaos and destruction",
       "length": 5,
       "truth": "HAVOC",
-      "filled": "HAVOC",
-      "correct": true,
+      "filled": "MAVOC",
+      "correct": false,
       "producedBy": 1,
       "batchIndex": null,
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 5,
+        "length": 15,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 9,
         "clue-echo": 2,
         "duplicate": 0,
         "rejected-before": 0
@@ -149,7 +149,7 @@
       "usd": 0,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 3,
+      "candidatesSeen": 6,
       "pickedRank": 0
     },
     {
@@ -164,9 +164,9 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 9,
+        "length": 27,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 3,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
@@ -176,7 +176,7 @@
       "usd": 0,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 1,
+      "candidatesSeen": 9,
       "pickedRank": 0
     },
     {
@@ -191,9 +191,9 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 1,
+        "length": 30,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 12,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
@@ -203,7 +203,7 @@
       "usd": 0,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 9,
+      "candidatesSeen": 11,
       "pickedRank": 0
     },
     {
@@ -398,9 +398,9 @@
     "ac3Reductions": 10
   },
   "repair": {
-    "proposals": 468,
-    "accepted": 0
+    "proposals": 269,
+    "accepted": 2
   },
-  "wallMs": 9,
+  "wallMs": 19,
   "budgetHits": []
 }
