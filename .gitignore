@@ -12,7 +12,7 @@ data/
 !test/fixtures/runs
 !test/fixtures/runs/**
 
-# Fetched puzzles are never committed (B46); the fixtures are.
+# Puzzles are never committed (no-distribution policy, 2026-09-04).
 puzzles/**
 
 .env

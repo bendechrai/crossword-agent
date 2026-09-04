@@ -27,8 +27,9 @@ import { repoRoot } from '../../src/util/fs.js';
  *    not chained:
  *
  *    a. `xw fetch file` against a committed `.ipuz` fixture, proving the
- *       `file` source and the loader dispatch work end to end. Not one of
- *       the four `puzzles/fixtures/*.xd` puzzles the task text names:
+ *       `file` source and the loader dispatch work end to end. Not a real
+ *       `.xd` puzzle: no real puzzles are committed to this repo (the
+ *       no-distribution policy, 2026-09-04) and, independently,
  *       `src/puzzle/adapters/xd.ts` unconditionally sets `parsedBy:
  *       'xd-hand'` (a value T25 added to the `ParsedBy` union in
  *       `src/puzzle/types.ts` under its own pre-authorisation), but
@@ -51,8 +52,9 @@ import { repoRoot } from '../../src/util/fs.js';
  *       `.ipuz` fetch normalises through `xwordly.ts` to `style: 'unknown'`
  *       and `title: 'synthetic-5x5.ipuz'` (T51's own PuzzleAdapterContext
  *       extension defaults style to `'unknown'` because the frozen
- *       `loader.ts` never supplies one), but every one of T50's 386
- *       committed cache entries was populated against
+ *       `loader.ts` never supplies one), but every one of the committed
+ *       cache entries - a small synthetic-only cache (`git ls-files
+ *       test/fixtures/cache | wc -l`) - was populated against
  *       `test/fixtures/puzzles/synthetic-5x5.json` - `style: 'american'`,
  *       `title: 'Synthetic five'` - and `src/util/hash.ts`'s
  *       `cacheKeyFields` hashes both `style` and `title` into the cache key
