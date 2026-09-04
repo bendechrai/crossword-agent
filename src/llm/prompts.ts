@@ -12,6 +12,16 @@ import type { LlmMessage } from './types.js';
  * Single owner of the prompt version (B49): a bump lands with the regenerated
  * cache and snapshots in one commit, and no feature task may bump it.
  *
+ * It is the *only* place a version is spelled out. `profiles/builtins.ts`,
+ * `profiles/schema.ts`'s default and `llm/client.ts`'s inference records all
+ * import this constant, because it is the profile's copy of the value that
+ * reaches the B23 cache key (`candidates/service.ts` ->
+ * `util/hash.cacheKey`), `xw cache clear --prompt-version` and the inference
+ * log. A bump that changed the prompt bytes here while those still read the
+ * old version would leave every cache key unchanged, so a pre-existing cache
+ * would answer the new prompts with the old version's responses and every run
+ * record would mislabel the version it ran.
+ *
  * "2" (T63) differs from "1" (T31) in exactly two measured ways:
  *
  * - Length discipline. 85% of all candidate rejections on the canonical bench

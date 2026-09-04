@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -11,12 +12,26 @@ import {
   renderPrompt,
   type RenderedPrompt,
 } from '../../../src/llm/prompts.js';
+import { getBuiltins } from '../../../src/profiles/builtins.js';
+import { ProfileSchema } from '../../../src/profiles/schema.js';
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../fixtures/prompts/', import.meta.url));
 const SCHEMA_PATH = fileURLToPath(
   new URL('../../../schemas/candidate-response.schema.json', import.meta.url),
 );
 const PROMPTS_SOURCE = fileURLToPath(new URL('../../../src/llm/prompts.ts', import.meta.url));
+const SRC_DIR = fileURLToPath(new URL('../../../src/', import.meta.url));
+
+/** Every `.ts` file under `dir`, recursively. */
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFiles(path));
+    else if (entry.name.endsWith('.ts')) out.push(path);
+  }
+  return out;
+}
 
 /**
  * Golden files are committed and compared byte for byte. Regenerate them with
@@ -150,6 +165,35 @@ describe('PROMPT_VERSION', () => {
   // self-check and the reworded clue_understood scale.
   it('is the string "2" (T31 acceptance 6, as amended by T63)', () => {
     expect(PROMPT_VERSION).toBe('2');
+  });
+
+  // The bump is only real if it reaches the B23 cache key, which is built from
+  // `profile.promptVersion` (candidates/service.ts -> util/hash.cacheKey), and
+  // the inference log's copy in llm/client.ts. A bump that changed the prompt
+  // bytes and left those behind would leave every key unchanged, so a
+  // pre-existing cache would answer version-2 prompts with version-1
+  // responses and `xw cache clear --prompt-version` would target the wrong
+  // entries. So no other module may spell a version out.
+  it('is what every built-in profile and the schema default carry', () => {
+    const profiles = Object.values(getBuiltins());
+    expect(profiles).toHaveLength(12);
+    for (const profile of profiles) {
+      expect(profile.promptVersion).toBe(PROMPT_VERSION);
+    }
+    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PROMPT_VERSION);
+  });
+
+  it('is the only place in src/ a prompt version literal is written', () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles(SRC_DIR)) {
+      if (file === PROMPTS_SOURCE) continue;
+      const text = readFileSync(file, 'utf8');
+      // `promptVersion: '1'`, `promptVersion = "2"`, `.default('1')` and so on.
+      if (/promptVersion\s*[:=]\s*['"][0-9]+['"]|PROMPT_VERSION\s*=\s*['"][0-9]+['"]/.test(text)) {
+        offenders.push(file);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

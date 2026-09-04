@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { PROMPT_VERSION } from '../llm/prompts.js';
+
 /**
  * The raw object schema, exported separately from the refined one so that
  * profile resolution (T23) can take partials of it. `ProfileSchema` is what
@@ -63,9 +65,11 @@ export const ProfileObject = z.object({
       maxConcurrencyTier2: z.number().int().default(16),
     })
     .prefault({}),
-  // Frozen at "1" for all of v1 (B23). Only T31 owns a bump, and a bump lands
-  // with the regenerated cache in the same commit (B49).
-  promptVersion: z.string().default('1'),
+  // The B23 cache key and the inference log both read this field, so it must
+  // track the prompt bytes. `llm/prompts.ts` owns the value (B49) and a bump
+  // lands with the regenerated cache in the same commit; nothing else may
+  // spell a version out.
+  promptVersion: z.string().default(PROMPT_VERSION),
 });
 
 export const ProfileSchema = ProfileObject.refine(

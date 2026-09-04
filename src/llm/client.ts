@@ -4,6 +4,7 @@ import type { PromptKind, Purpose, Tier } from '../candidates/types.js';
 import type { Emit } from '../events/types.js';
 import { providerError } from '../cli/exit.js';
 import { usdFor } from './pricing.js';
+import { PROMPT_VERSION } from './prompts.js';
 import { getLimiter, parseRateLimitHeaders } from './rateLimiter.js';
 import type {
   InferenceLog,
@@ -22,18 +23,17 @@ const DEFAULT_NEBIUS_BASE_URL = 'https://api.tokenfactory.nebius.com/v1';
 const DEFAULT_MAX_RETRIES = 5;
 const BASE_BACKOFF_MS = 500;
 
-/** B: promptVersion is "1" for all of v1; only T31 ever bumps it. */
-const PROMPT_VERSION = '1';
-
 /**
  * Placeholder context for the fields of `InferenceLogRecord` that identify
  * *why* a call was made (run, puzzle, slot, purpose, batch position, cache
  * key...). The transport is deliberately built with none of that knowledge
  * ("it moves text and usage" - T33 decisions), so every record it writes
  * carries these fixed, honestly-labelled placeholders rather than a guess
- * dressed up as real data. `cacheHit: false` and `promptVersion: "1"` are
- * the two exceptions: those genuinely are known here (a transport call is by
- * definition never a cache hit, and promptVersion never varies in v1).
+ * dressed up as real data. `cacheHit: false` and `promptVersion` are the two
+ * exceptions: those genuinely are known here (a transport call is by
+ * definition never a cache hit, and the prompt version is whatever
+ * `llm/prompts.ts` currently renders, which is where `PROMPT_VERSION` is
+ * imported from rather than re-spelled).
  *
  * A future caller that wants richer correlation (T34's candidate service, or
  * whatever wires the CLI together) would need either an extension to the

@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-7x7--baseline--20260904T205037Z--1df1aeb1",
-  "timestamp": "2026-09-04T20:50:37.633Z",
+  "runId": "synthetic-7x7--baseline--20260904T210346Z--30b4f746",
+  "timestamp": "2026-09-04T21:03:46.634Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-7x7",
@@ -50,7 +50,7 @@
       "maxConcurrencyTier1": 8,
       "maxConcurrencyTier2": 16
     },
-    "promptVersion": "1"
+    "promptVersion": "2"
   },
   "provenance": {
     "gitCommit": "unknown",
@@ -725,6 +725,6 @@
     "proposals": 395,
     "accepted": 0
   },
-  "wallMs": 31,
+  "wallMs": 25,
   "budgetHits": []
 }

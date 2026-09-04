@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { PROMPT_VERSION } from '../../../src/llm/prompts.js';
 import { ProfileSchema } from '../../../src/profiles/schema.js';
 
 describe('ProfileSchema', () => {
@@ -25,12 +26,16 @@ describe('ProfileSchema', () => {
       repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
       budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
       rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-      promptVersion: '1',
+      promptVersion: '2',
     });
   });
 
-  it('defaults promptVersion to "1" and not to "v1"', () => {
-    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe('1');
+  it('defaults promptVersion to the bare number the prompts own, not to "v<n>"', () => {
+    // The default has to track `llm/prompts.ts`, because the profile's copy is
+    // what reaches the B23 cache key: a default left behind after a prompt bump
+    // would serve the old version's cached responses to the new prompts (T63).
+    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PROMPT_VERSION);
+    expect(PROMPT_VERSION).toMatch(/^[0-9]+$/);
   });
 
   it('rejects votes calibration without three samples at temperature 0.7', () => {

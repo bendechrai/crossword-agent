@@ -1522,6 +1522,7 @@ Starts once every Wave 3 task is merged.
 - Decisions baked in: promptVersion "2"; the constrained and escalate templates get the same length self-check; no schema changes outside owned files; ASCII only in prompts.
 - Acceptance: 1. Prompt tests assert the letter count appears immediately before the answer field and the self-check instruction is present in all three templates; goldens updated. 2. Prompt tests assert the clue_understood guidance text and that the examples include at least one value at or below 0.5. 3. Fixture cache refreshed; integration tests pass with offlineMode strict; mean candidatesSeen per slot on the synthetic fixtures reported before/after. 4. preflight passes. 5. docs/spec.md names promptVersion 2.
 - Out of scope: policy/search changes (T62), bench runs.
+- Review follow-up (2026-09-04): the bump only counts if it reaches the B23 cache key, which is built from `profile.promptVersion`, not from `PROMPT_VERSION`. Review pre-authorised the twelve literals in src/profiles/builtins.ts, the src/profiles/schema.ts default and src/llm/client.ts's private constant to import `PROMPT_VERSION` instead, and the committed cache to be re-keyed to promptVersion "2". Two assertions that read those values had to follow: test/unit/profiles/schema.test.ts (the default) and test/unit/cli/solve.test.ts (the printed cost total now spans both tiers, because the 5x5 fixture reaches a tier-2 escalation under version 2) - the latter is T61's file and is listed as a deviation.
 
 ## Task index
 
