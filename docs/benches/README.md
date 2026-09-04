@@ -22,7 +22,7 @@ xw report --by stratum --compare baseline,eager-escalation,patient --md
 **Decision rule (american stratum only):** Pick the profile with the highest perfect-puzzle rate on the american stratum. If the winner's USD per correct word exceeds the best alternative by more than a factor of 1.5, pick the alternative instead. Report the cryptic stratum and letter-accuracy delta alongside, but do not make decisions on either.
 
 **Results:**
-(To be filled by a bench run)
+See `docs/benches/escalation-policy.md` (bench run 2026-09-04, `sets/mixed-12.json`). All three profiles tied at a 0.0000 perfect-puzzle rate on the american stratum, so the rule's cost tie-break decided; `patient` came out marginally cheapest per correct word, but by under 4% over the other two, not a decisive margin. A superseded first pass (run before the word list was loaded and before cache hits were priced counterfactually) is recorded in the same document for comparison.
 
 ## Batch-size bench
 
