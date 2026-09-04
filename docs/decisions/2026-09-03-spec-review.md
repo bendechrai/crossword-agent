@@ -70,3 +70,27 @@ B52. M0 contracts task (single owner, no implementations): puzzle types; Grid + 
 
 A Puzzle loading; B Grid + DomainStore; C Sources + fetch/list/show; D Transport (client, rateLimiter, inferenceLog, pricing); E Prompting + parsing + tierRouter; F Candidate service + cache + normalise + calibrate; G Solver (ac3, search, repair, policy) built against a fixture-backed CandidateService; H Renderers built from a hand-written events.jsonl fixture; I Eval (scorer, runRecorder, aggregate, inference report, bench, report) from hand-written RunRecord fixtures; J Infrastructure (Dockerfile, compose, wrapper, tsconfig, eslint, vitest, npm scripts, CI).
 Remaining edges: G integration tests need B's Grid (stub then swap); F's disk cache format feeds G's integration tests; I's inference report needs only D's record shape.
+
+## Addenda
+
+2026-09-04: A3 and B47 superseded: no real puzzles committed. Ben's binding
+no-distribution policy is that no real crossword puzzle is committed to this
+repository in any form: no puzzle file, no clue text, no solution, and no
+snapshot, run record or cache entry derived from one. This supersedes A3 (the
+four hand-picked pre-1965 xd fixtures under `puzzles/fixtures/` with
+`FIXTURES.md`) and the fixture-related half of B47 (run records for fixture
+puzzles committed under `test/fixtures/runs/`, read as covering those same
+four real puzzles).
+
+The two hand-authored synthetic grids from A3 (5x5 with an unchecked cell and
+a 2-letter entry; 7x7 with an accented answer and a multi-word enumeration)
+are unaffected and are now the repository's only committed fixtures, unit and
+integration alike. `puzzles/fixtures/` and `FIXTURES.md` are deleted;
+`.gitignore` ignores all of `puzzles/` unconditionally (the `!puzzles/fixtures/**`
+re-include is gone); `test/fixtures/cache/` and `test/fixtures/runs/` keep
+only entries that belong to the two synthetic puzzles; and `sets/mixed-30.json`
+carries placeholder ids (`TODO-american-NN`, `TODO-cryptic-NN`) instead of
+real puzzle ids, to be filled by `xw fetch` against puzzles the user has
+fetched locally and never commits. Landed in T56 (see `docs/build-notes` and
+commit `394ffbe`); this addendum records the decision for the same reason the
+rest of this file exists: so the reasoning behind the spec stays traceable.

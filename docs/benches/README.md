@@ -2,6 +2,12 @@
 
 This directory holds committed benchmark reports, produced by `xw report --md` after each bench run.
 
+Both benches below are run again in M6 (v1.1) with the repair pass enabled,
+because a policy that looks worse before repair may be the one repair rescues
+best (docs/spec.md, "Strategy profiles"). The results recorded here through
+M5 are pre-repair; a repeat run's results are recorded alongside them, not in
+place of them, so the two are always comparable.
+
 ## Escalation-policy bench
 
 **Command:**
