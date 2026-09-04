@@ -9,6 +9,9 @@ escalation-policy result below predates the constrained-re-ask and prompt
 fixes in T62/T63 - it was run on `mixed-12.json` against a promptVersion-1,
 pre-T62 solver - and is kept in place as the historical baseline rather than
 rerun or rewritten; a fresh run against `modern-12.json` is future work.
+docs/benches/era-test.md tests how much of that low accuracy is era mismatch
+(pre-1965 puzzles vs. 2024 ones) rather than a solver defect, on the same
+pre-T62/T63 code.
 
 Both benches below are run again in M6 (v1.1) with the repair pass enabled,
 because a policy that looks worse before repair may be the one repair rescues
