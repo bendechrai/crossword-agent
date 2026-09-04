@@ -29,6 +29,12 @@ export interface ListOptions {
 
 export interface ShowOptions {
   solution: boolean;
+  /**
+   * `--run [runId]` (T59): `undefined` when the flag was not given, `true`
+   * for the bare flag (latest run for the puzzle), or the given run id / id
+   * prefix.
+   */
+  run?: boolean | string;
 }
 
 export interface SolveOptions {
