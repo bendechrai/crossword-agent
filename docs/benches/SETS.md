@@ -3,15 +3,19 @@
 **No-distribution policy.** Every file under `sets/` names puzzles by `id` and
 `stratum` only (`{ id, stratum }`, nothing else) - no clue text, no grid, no
 solution, no puzzle file of any kind. A bench set is a shopping list, not a
-puzzle archive: `xw bench <set>` (or a plain `xw fetch`) resolves each id by
-fetching the puzzle locally into `puzzles/<source>/`, which is entirely
-gitignored, so the actual puzzle content for any real id in `sets/mixed-12.json`
-or `sets/modern-12.json` never touches this repository, whether as a puzzle
-file, a run record, a snapshot, or a cache entry. This applies even though the
-ids themselves are real and public (`xd-lat2024-01-08`, `guardian-cryptic-30100`,
-and so on) - an id is not puzzle content, and `test/contract/sets.test.ts`
-enforces the shape (`id`/`stratum` keys only, per set) so a future edit cannot
-smuggle content in under a new key.
+puzzle archive: only `xw fetch` writes puzzles into `puzzles/<source>/`, which
+is entirely gitignored, so the actual puzzle content for any real id in
+`sets/mixed-12.json` or `sets/modern-12.json` never touches this repository,
+whether as a puzzle file, a run record, a snapshot, or a cache entry. `xw
+bench <set>` never fetches: it only reads whatever is already in the local
+library, and reports `bench: could not load puzzle "<id>"` for any set entry
+that has not been fetched yet - so the recipes below must be run, via `xw
+fetch`, before benching either `sets/mixed-12.json` or `sets/modern-12.json`.
+This applies even though the ids themselves are real and public
+(`xd-lat2024-01-08`, `guardian-cryptic-30100`, and so on) - an id is not
+puzzle content, and `test/contract/sets.test.ts` enforces the shape
+(`id`/`stratum` keys only, per set) so a future edit cannot smuggle content in
+under a new key.
 
 Below is the exact, reproducible recipe for every committed set: what to run,
 in order, to reconstruct the puzzles each set's ids refer to. Nothing below is
