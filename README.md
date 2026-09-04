@@ -56,10 +56,15 @@ docker compose down -v && docker compose up -d
 
 ## Puzzle data and sources
 
-**Fetched puzzles are never committed.** `puzzles/<source>/` is gitignored;
-only the hand-picked fixtures under `puzzles/fixtures/` are in the repository,
-each with its provenance recorded in `puzzles/fixtures/FIXTURES.md`. Run
-records, inference logs and the candidate cache are not committed either.
+**Puzzles are never committed.** Every puzzle you solve is fetched on demand
+with `xw fetch` into `puzzles/<source>/`, which is entirely gitignored: no
+real puzzle, in any form (puzzle file, clue text, solution, or a run record,
+snapshot or cache entry derived from one), is ever added to this repository,
+and puzzles fetched from any source are not redistributed. The only puzzles
+that live in the repository are two hand-authored synthetic grids under
+`test/fixtures/puzzles/`, used as unit- and integration-test fixtures. Run
+records, inference logs and the candidate cache outside those two fixtures'
+committed entries are not committed either.
 
 The Guardian adapter reads an unofficial JSON endpoint and is deliberately
 constrained to personal-research volumes: it sends a descriptive `User-Agent`
@@ -103,6 +108,25 @@ Working rules that matter to a coding agent:
   task needs is already declared.
 - ASCII only in source, tests and docs: no em dashes, no curly quotes.
 - No network in tests.
+
+## Manual pre-release check
+
+`npm test` runs entirely offline against fixtures, so it cannot catch a
+regression in the real network path: fetching from a live source, or a real
+call to Nebius. Before a release, run the container-based smoke check by
+hand:
+
+```
+docker compose up -d
+sh scripts/smoke-container.sh
+```
+
+This starts the long-running `crossword-solver` container, then exercises
+`xw fetch file` and `xw solve --offline` against it end to end, printing
+`smoke-container: OK` on success. It is not run by `npm test` or CI (CI's
+`image` job only proves the image builds), because it needs a real running
+container and `docker exec` against it; see the comment at the top of
+`scripts/smoke-container.sh` for what it checks and why.
 
 ## Licence
 
