@@ -456,8 +456,8 @@ describe('inline schema variant (acceptance 7, B9)', () => {
 /** The line every single-clue template ends on: slot id, exact count, self-check. */
 function lastAskLine(slotId: string, length: number): string {
   return (
-    `Every answer for ${slotId} is exactly ${length} letters long: count the letters of each ` +
-    `answer, drop any answer whose count is not ${length}, and write the counts you kept in "notes".`
+    `Every answer for ${slotId} is exactly ${length} letters long: count each answer's letters ` +
+    `into "notes" first, and put only the answers that come to ${length} into "candidates".`
   );
 }
 
@@ -493,24 +493,35 @@ describe('length discipline (T63, acceptance 1)', () => {
     it(`${kind}: carries the count-and-drop self-check in the system message`, () => {
       const system = systemText(rendered);
       expect(system).toContain(
-        'Count the letters of each answer before you write it into "candidates"',
+        'Write "clue_understood" first, then "notes" as one short line holding one ANSWER=count ' +
+          'entry per answer you mean to offer',
       );
-      expect(system).toContain('leave out any answer whose count does not match');
       expect(system).toContain(
-        '- "notes" is one short line giving the letter count of each answer you kept',
+        'delete it from "notes" and never write it into "candidates"',
+      );
+      expect(system).toContain(
+        'Every answer has exactly the number of letters the clue asks for, and you check that ' +
+          'before you commit to it',
       );
     });
   }
 
   it('says "1 letter" rather than "1 letters" in the restatement too', () => {
     const text = userText(renderPrompt(request({ length: 1, pattern: '?' }), 'seed', PLAIN));
-    expect(text.endsWith('is exactly 1 letter long: count the letters of each answer, drop any answer whose count is not 1, and write the counts you kept in "notes".')).toBe(true);
+    expect(
+      text.endsWith(
+        'is exactly 1 letter long: count each answer\'s letters into "notes" first, and put only ' +
+          'the answers that come to 1 into "candidates".',
+      ),
+    ).toBe(true);
   });
 
   it('ends the batched user message with the same rule, keyed to each clue\'s length', () => {
     const lines = userText(renderBatchedSeedPrompt(BATCH_REQUESTS, PLAIN)).split('\n');
     expect(lines[lines.length - 1]).toBe(
-      'Every answer is exactly as many letters as its own clue\'s "length" above: count the letters of each answer, drop any whose count does not match that clue\'s "length", and write the counts you kept in that result\'s "notes".',
+      'Every answer is exactly as many letters as its own clue\'s "length" above: count each ' +
+        'answer\'s letters into that result\'s "notes" first, and put only the answers that come ' +
+        'to that clue\'s "length" into its "candidates".',
     );
   });
 

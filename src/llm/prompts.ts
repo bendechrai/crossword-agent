@@ -179,17 +179,17 @@ function pluralLetters(length: number): string {
 function askLines(slotId: string, length: number, n: number): string[] {
   return [
     `Give up to ${n} candidate answers for ${slotId}, best first.`,
-    `Every answer for ${slotId} is exactly ${pluralLetters(length)} long: count the letters of ` +
-      `each answer, drop any answer whose count is not ${length}, and write the counts you kept ` +
-      'in "notes".',
+    `Every answer for ${slotId} is exactly ${pluralLetters(length)} long: count each answer's ` +
+      `letters into "notes" first, and put only the answers that come to ${length} into ` +
+      '"candidates".',
   ];
 }
 
 /** The same reminder for the batched form, where each clue carries its own length. */
 const BATCHED_LENGTH_LINE =
-  'Every answer is exactly as many letters as its own clue\'s "length" above: count the letters ' +
-  'of each answer, drop any whose count does not match that clue\'s "length", and write the ' +
-  'counts you kept in that result\'s "notes".';
+  'Every answer is exactly as many letters as its own clue\'s "length" above: count each ' +
+  'answer\'s letters into that result\'s "notes" first, and put only the answers that come to ' +
+  'that clue\'s "length" into its "candidates".';
 
 /**
  * Two worked examples, not one (T63). Version 1 shipped a single example
@@ -230,24 +230,29 @@ const CERTAIN_EXAMPLE_REQUEST = exampleRequest('2D', 'Chaos and destruction', 5,
 
 const CERTAIN_EXAMPLE_ANSWER = {
   clue_understood: 1,
+  // "notes" before "candidates" on purpose: JSON property order is free, and
+  // the first refresh against the live model showed the count is only a
+  // self-check if it is written BEFORE the answer list. Asked for ten
+  // five-letter answers with the counts trailing, the model dutifully wrote
+  // "MAYHEM=6 SCOURGE=7" and offered both anyway.
+  notes: 'HAVOC=5 RUINS=5 WRACK=5',
   candidates: [
     { answer: 'HAVOC', confidence: 0.95 },
     { answer: 'RUINS', confidence: 0.3 },
     { answer: 'WRACK', confidence: 0.1 },
   ],
-  notes: 'HAVOC=5 RUINS=5 WRACK=5',
 } as const;
 
 const GUESS_EXAMPLE_REQUEST = exampleRequest('5D', 'Charge', 4, 3);
 
 const GUESS_EXAMPLE_ANSWER = {
   clue_understood: 0.5,
+  notes: 'COST=4 RUSH=4 LOAD=4',
   candidates: [
     { answer: 'COST', confidence: 0.31 },
     { answer: 'RUSH', confidence: 0.22 },
     { answer: 'LOAD', confidence: 0.14 },
   ],
-  notes: 'COST=4 RUSH=4 LOAD=4',
 } as const;
 
 const BATCHED_EXAMPLE_REQUEST = [
@@ -270,20 +275,20 @@ const BATCHED_EXAMPLE_ANSWER = {
     {
       id: '2D',
       clue_understood: 1,
+      notes: 'HAVOC=5 RUINS=5',
       candidates: [
         { answer: 'HAVOC', confidence: 0.95 },
         { answer: 'RUINS', confidence: 0.3 },
       ],
-      notes: 'HAVOC=5 RUINS=5',
     },
     {
       id: '5D',
       clue_understood: 0.5,
+      notes: 'COST=4 RUSH=4',
       candidates: [
         { answer: 'COST', confidence: 0.31 },
         { answer: 'RUSH', confidence: 0.22 },
       ],
-      notes: 'COST=4 RUSH=4',
     },
   ],
 } as const;
@@ -314,10 +319,10 @@ function renderSystem(opts: SystemOptions): string {
   lines.push(
     '- "clue_understood" is a number from 0 to 1 saying how sure you are that you have read the clue correctly. It is a routing signal, not a score for any answer, and the solver acts on the number you report.',
     '- Choose it on this scale: 1.0 only when the clue is unambiguous and your best answer is certain; around 0.5 when you understand what the clue is asking but the answer is a guess; below 0.3 when the clue itself is opaque to you and you are offering something anyway. Everything in between is in use, and the same number on every clue tells the solver nothing.',
-    '- "candidates" is an array ordered best first. Each entry is an object with an "answer" and a "confidence" from 0 to 1.',
+    '- "candidates" is an array ordered best first. Each entry is an object with an "answer" and a "confidence" from 0 to 1; an entry missing either of those two fields makes the whole reply unusable.',
     '- Answers are written the way they are entered in the grid: run together in uppercase A-Z, with no spaces, no hyphens, no apostrophes, no punctuation and no accents. "Button your lip" is entered as BUTTONYOURLIP.',
-    '- Every answer has exactly the number of letters the clue asks for. Count the letters of each answer before you write it into "candidates", and leave out any answer whose count does not match rather than offering it anyway: three answers of the right length are worth more than ten of which seven are the wrong length.',
-    '- "notes" is one short line giving the letter count of each answer you kept, written as ANSWER=count and separated by spaces, for example "HAVOC=5 RUINS=5".',
+    '- Every answer has exactly the number of letters the clue asks for, and you check that before you commit to it. Write "clue_understood" first, then "notes" as one short line holding one ANSWER=count entry per answer you mean to offer, for example "HAVOC=5 RUINS=5 WRACK=5", and then "candidates" holding exactly those answers.',
+    '- Every count you write equals the number of letters the clue asks for. When one does not, that answer is the wrong length: delete it from "notes" and never write it into "candidates". Three answers of the right length are worth more than ten of which seven are the wrong length.',
     '- Offer each answer once. Two spellings that run together to the same letters are the same answer.',
   );
 

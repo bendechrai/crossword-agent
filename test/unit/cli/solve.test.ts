@@ -527,14 +527,22 @@ describe('T61: the printed cost block labels billed and counterfactual separatel
       expect(figures.billed).toBe(0);
       expect(figures.counterfactual).toBeGreaterThan(0);
 
+      type TierCalls = { usdBilled: number; usdCounterfactual: number; cacheHits: number };
       const record = JSON.parse(readFileSync(out, 'utf8')) as {
-        calls: { tier1: { usdBilled: number; usdCounterfactual: number; cacheHits: number } };
+        calls: { tier1: TierCalls; tier2: TierCalls };
       };
       expect(record.calls.tier1.usdBilled).toBe(0);
       expect(record.calls.tier1.usdCounterfactual).toBeGreaterThan(0);
       expect(record.calls.tier1.cacheHits).toBeGreaterThan(0);
       // The printed block and the written record are the same numbers.
-      expect(record.calls.tier1.usdCounterfactual).toBeCloseTo(figures.counterfactual, 4);
+      // `costFigures` sums both tiers, so the record side has to as well: this
+      // fixture reaches a cached tier-2 escalation since promptVersion 2 (T63)
+      // made `clue_understood` vary enough for the 0.4 trigger to fire.
+      expect(record.calls.tier1.usdCounterfactual + record.calls.tier2.usdCounterfactual).toBeCloseTo(
+        figures.counterfactual,
+        4,
+      );
+      expect(record.calls.tier1.usdBilled + record.calls.tier2.usdBilled).toBe(figures.billed);
     } finally {
       vi.unstubAllGlobals();
     }

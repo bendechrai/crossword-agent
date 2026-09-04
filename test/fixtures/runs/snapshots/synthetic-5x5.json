@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-5x5--baseline--20260904T205040Z--1f46a839",
-  "timestamp": "2026-09-04T20:50:40.485Z",
+  "runId": "synthetic-5x5--baseline--20260904T205007Z--1df1aeb1",
+  "timestamp": "2026-09-04T20:50:07.219Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-5x5",
@@ -26,7 +26,7 @@
     "escalation": {
       "policy": "reask-first",
       "clueUnderstoodThreshold": 0.4,
-      "maxTier2CallsPerPuzzle": 25,
+      "maxTier2CallsPerPuzzle": 15,
       "escalationsPerSlot": 1
     },
     "search": {
@@ -65,9 +65,9 @@
     "tier2": "deepseek-ai/DeepSeek-V4-Pro"
   },
   "accuracy": {
-    "letters": 0.9545454545454546,
-    "words": 0.8181818181818182,
-    "perfect": false,
+    "letters": 1,
+    "words": 1,
+    "perfect": true,
     "emptyCells": 0
   },
   "perSlot": [
@@ -76,27 +76,27 @@
       "clue": "Cry of surprise",
       "length": 2,
       "truth": "OH",
-      "filled": "OM",
-      "correct": false,
+      "filled": "OH",
+      "correct": true,
       "producedBy": 1,
       "batchIndex": null,
       "truthInCandidates": true,
-      "truthRank": 2,
+      "truthRank": 0,
       "rejectCounts": {
-        "length": 11,
+        "length": 5,
         "charset": 0,
-        "pattern": 16,
+        "pattern": 14,
         "clue-echo": 0,
-        "duplicate": 0,
+        "duplicate": 8,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00076368,
+      "usd": 0.0009211199999999999,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 11,
-      "pickedRank": 2
+      "candidatesSeen": 10,
+      "pickedRank": 0
     },
     {
       "slotId": "1D",
@@ -108,48 +108,48 @@
       "producedBy": 1,
       "batchIndex": null,
       "truthInCandidates": true,
-      "truthRank": 0,
+      "truthRank": 1,
       "rejectCounts": {
-        "length": 12,
+        "length": 5,
         "charset": 0,
-        "pattern": 14,
-        "clue-echo": 0,
-        "duplicate": 2,
+        "pattern": 21,
+        "clue-echo": 1,
+        "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00049224,
+      "usd": 0.00091956,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 4,
-      "pickedRank": 0
+      "candidatesSeen": 6,
+      "pickedRank": 1
     },
     {
       "slotId": "2D",
       "clue": "Chaos and destruction",
       "length": 5,
       "truth": "HAVOC",
-      "filled": "MAVOC",
-      "correct": false,
+      "filled": "HAVOC",
+      "correct": true,
       "producedBy": 1,
       "batchIndex": null,
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 15,
+        "length": 2,
         "charset": 0,
-        "pattern": 9,
-        "clue-echo": 2,
+        "pattern": 16,
+        "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0004918800000000001,
+      "usd": 0.00077988,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 6,
+      "candidatesSeen": 4,
       "pickedRank": 0
     },
     {
@@ -164,19 +164,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 27,
+        "length": 6,
         "charset": 0,
-        "pattern": 3,
+        "pattern": 1,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0008020200000000001,
+      "usd": 0.00022518,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 9,
+      "candidatesSeen": 1,
       "pickedRank": 0
     },
     {
@@ -191,19 +191,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 30,
+        "length": 2,
         "charset": 0,
-        "pattern": 12,
+        "pattern": 0,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00074874,
+      "usd": 0.0002031,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 11,
+      "candidatesSeen": 2,
       "pickedRank": 0
     },
     {
@@ -218,19 +218,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 7,
+        "length": 0,
         "charset": 0,
-        "pattern": 0,
-        "clue-echo": 0,
+        "pattern": 1,
+        "clue-echo": 1,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0001047,
+      "usd": 0.00020196,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 3,
+      "candidatesSeen": 2,
       "pickedRank": 0
     },
     {
@@ -238,27 +238,27 @@
       "clue": "Synthetic silk-like fabric",
       "length": 5,
       "truth": "RAYON",
-      "filled": "RAYON",
-      "correct": true,
-      "producedBy": 1,
+      "filled": null,
+      "correct": false,
+      "producedBy": null,
       "batchIndex": null,
-      "truthInCandidates": true,
-      "truthRank": 1,
+      "truthInCandidates": false,
+      "truthRank": null,
       "rejectCounts": {
-        "length": 7,
+        "length": 1,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 3,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00010656,
-      "reasks": 0,
+      "usd": 0.00021821999999999998,
+      "reasks": 1,
       "escalated": false,
-      "candidatesSeen": 3,
-      "pickedRank": 1
+      "candidatesSeen": 2,
+      "pickedRank": null
     },
     {
       "slotId": "6D",
@@ -272,19 +272,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 0,
+        "length": 7,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 5,
         "clue-echo": 0,
-        "duplicate": 9,
+        "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0001041,
+      "usd": 0.0003594,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 1,
+      "candidatesSeen": 4,
       "pickedRank": 0
     },
     {
@@ -299,19 +299,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 4,
+        "length": 1,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 9,
         "clue-echo": 0,
-        "duplicate": 1,
+        "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00010506,
+      "usd": 0.0006217799999999999,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 5,
+      "candidatesSeen": 2,
       "pickedRank": 0
     },
     {
@@ -321,24 +321,24 @@
       "truth": "LOUSE",
       "filled": "LOUSE",
       "correct": true,
-      "producedBy": 1,
+      "producedBy": 2,
       "batchIndex": null,
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 7,
+        "length": 8,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 10,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00010308,
-      "reasks": 0,
-      "escalated": false,
-      "candidatesSeen": 3,
+      "usd": 0.00281256,
+      "reasks": 2,
+      "escalated": true,
+      "candidatesSeen": 1,
       "pickedRank": 0
     },
     {
@@ -353,54 +353,54 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 8,
+        "length": 0,
         "charset": 0,
         "pattern": 0,
         "clue-echo": 0,
-        "duplicate": 1,
+        "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00010302,
+      "usd": 0.000144,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 1,
+      "candidatesSeen": 10,
       "pickedRank": 0
     }
   ],
   "calls": {
     "tier1": {
-      "count": 41,
-      "promptTokens": 32514,
-      "completionTokens": 8226,
+      "count": 44,
+      "promptTokens": 60287,
+      "completionTokens": 5421,
       "reasoningTokens": 0,
       "usdBilled": 0,
-      "usdCounterfactual": 0.003925080000000001,
-      "cacheHits": 41,
+      "usdCounterfactual": 0.0049182600000000016,
+      "cacheHits": 44,
       "avgLatencyMs": 0
     },
     "tier2": {
-      "count": 0,
-      "promptTokens": 0,
-      "completionTokens": 0,
+      "count": 1,
+      "promptTokens": 848,
+      "completionTokens": 287,
       "reasoningTokens": 0,
       "usdBilled": 0,
-      "usdCounterfactual": 0,
-      "cacheHits": 0,
+      "usdCounterfactual": 0.0024885,
+      "cacheHits": 1,
       "avgLatencyMs": 0
     }
   },
   "search": {
-    "backtracks": 0,
+    "backtracks": 6,
     "discrepancies": 0,
-    "wipeouts": 0,
-    "ac3Reductions": 10
+    "wipeouts": 5,
+    "ac3Reductions": 8
   },
   "repair": {
-    "proposals": 269,
-    "accepted": 2
+    "proposals": 537,
+    "accepted": 4
   },
-  "wallMs": 25,
+  "wallMs": 20,
   "budgetHits": []
 }
