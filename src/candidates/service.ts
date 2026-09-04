@@ -483,7 +483,7 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       usdBilled: usd,
       usdCounterfactual: usd,
       // Emitted exactly once per cold call, so the run record can never
-      // double-count it against the hit path below (B2).
+      // double-count it against `emitCachedUsage` above (B2).
       cacheHit: false,
       latencyMs: call.latencyMs,
     });

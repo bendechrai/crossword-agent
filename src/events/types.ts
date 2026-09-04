@@ -286,8 +286,9 @@ export interface LlmUsageEvent extends EventBase {
    * provider (B2). A hit costs nothing (`usdBilled` 0) but is still priced
    * into `usdCounterfactual` from the cached usage blob, which is what keeps
    * two profiles comparable when one of them inherited the other's cache.
-   * Optional so an event stream recorded before T61 still parses; absent is
-   * read as a cold call.
+   * Optional so an event stream recorded before T61 still parses; a consumer
+   * reading such a stream falls back to the `cache:lookup` that preceded the
+   * event.
    */
   cacheHit?: boolean;
 }
