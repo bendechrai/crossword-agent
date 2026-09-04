@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-7x7--baseline--20260904T193801Z--1df1aeb1",
-  "timestamp": "2026-09-04T19:38:01.841Z",
+  "runId": "synthetic-7x7--baseline--20260904T205040Z--1f46a839",
+  "timestamp": "2026-09-04T20:50:40.517Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-7x7",
@@ -26,7 +26,7 @@
     "escalation": {
       "policy": "reask-first",
       "clueUnderstoodThreshold": 0.4,
-      "maxTier2CallsPerPuzzle": 15,
+      "maxTier2CallsPerPuzzle": 25,
       "escalationsPerSlot": 1
     },
     "search": {
@@ -700,7 +700,7 @@
       "completionTokens": 7915,
       "reasoningTokens": 0,
       "usdBilled": 0,
-      "usdCounterfactual": 0.00442698,
+      "usdCounterfactual": 0.0044269800000000005,
       "cacheHits": 54,
       "avgLatencyMs": 0
     },
@@ -725,6 +725,6 @@
     "proposals": 855,
     "accepted": 0
   },
-  "wallMs": 30,
+  "wallMs": 24,
   "budgetHits": []
 }

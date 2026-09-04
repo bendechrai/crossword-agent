@@ -192,6 +192,22 @@ describe('builtins', () => {
     expect(tier1Only.escalation.maxTier2CallsPerPuzzle).toBe(0);
   });
 
+  it('carries the T62 tier-2 allowance of 25 everywhere except tier1-only', () => {
+    // T62 raised it from 15: the canonical bench spent the 15 on all-`?`
+    // escalations at termination, and the constrained re-ask firing first
+    // means the cap now has to cover the slots that reach tier 2 with letters
+    // on the board.
+    expect(baseline.escalation.maxTier2CallsPerPuzzle).toBe(25);
+    expect(eagerEscalation.escalation.maxTier2CallsPerPuzzle).toBe(25);
+    expect(patient.escalation.maxTier2CallsPerPuzzle).toBe(25);
+    for (const [name, profile] of Object.entries(getBuiltins())) {
+      expect(
+        profile.escalation.maxTier2CallsPerPuzzle,
+        `${name} tier-2 allowance`,
+      ).toBe(name === 'tier1-only' ? 0 : 25);
+    }
+  });
+
   it('strong-only raises tier1 to the strong model and the budget', () => {
     expect(strongOnly.tier1).toBe('deepseek-ai/DeepSeek-V4-Pro');
     expect(strongOnly.budget.usd).toBe(2.0);
