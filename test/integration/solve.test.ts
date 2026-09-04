@@ -69,10 +69,6 @@ interface FixtureSpec {
 }
 
 const FIXTURES: readonly FixtureSpec[] = [
-  { id: 'nyt-1950-10-12', kind: 'path', path: 'puzzles/fixtures/nyt-1950-10-12.xd' },
-  { id: 'nyt-1955-06-06', kind: 'path', path: 'puzzles/fixtures/nyt-1955-06-06.xd' },
-  { id: 'nyt-1959-04-24', kind: 'path', path: 'puzzles/fixtures/nyt-1959-04-24.xd' },
-  { id: 'nyt-1962-03-21', kind: 'path', path: 'puzzles/fixtures/nyt-1962-03-21.xd' },
   { id: 'synthetic-5x5', kind: 'library', path: 'test/fixtures/puzzles/synthetic-5x5.json' },
   { id: 'synthetic-7x7', kind: 'library', path: 'test/fixtures/puzzles/synthetic-7x7.json' },
 ];
@@ -116,11 +112,11 @@ async function sourceOf(jsonPath: string): Promise<string> {
 }
 
 /**
- * Resolves what `solveCommand` needs to find this fixture: a real path for
- * the four `.xd` fixtures, or a throwaway one-entry library directory for
- * the two synthetic `NormalisedPuzzleFile` fixtures (a bare `.json` path
- * dispatches through the Guardian adapter instead - see
- * `scripts/fixtures-refresh.ts`'s `FixtureSpec.kind` doc comment for why).
+ * Resolves what `solveCommand` needs to find this fixture: a throwaway
+ * one-entry library directory for the synthetic `NormalisedPuzzleFile`
+ * fixture (a bare `.json` path dispatches through the Guardian adapter
+ * instead - see `scripts/fixtures-refresh.ts`'s `FixtureSpec.kind` doc
+ * comment for why).
  */
 async function targetFor(fixture: FixtureSpec): Promise<{ target: string; puzzlesDir?: string }> {
   const path = join(ROOT, fixture.path);
