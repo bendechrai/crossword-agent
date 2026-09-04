@@ -241,6 +241,60 @@ describe('integration: xw solve --offline against the committed fixture cache', 
     );
   }
 
+  it(
+    'the constrained re-ask fires with letters already on the board (T62)',
+    async () => {
+      // T62's decision: prove on a real offline solve, not only with fakes,
+      // that a wipeout now buys a constrained re-ask whose pattern carries a
+      // fixed letter - the 7x7 fixture wipes out exactly once. The assertion
+      // is on the trace, since `slot:reask`'s pattern is not in the run
+      // record.
+      const fixture = FIXTURES.find((f) => f.id === 'synthetic-7x7');
+      expect(fixture).toBeDefined();
+      const { target, puzzlesDir } = await targetFor(fixture!);
+      const runsDir = await freshTmpDir('solve-it-trace-');
+      const overrides: SolveCommandOverrides = {
+        cacheDir: CACHE_DIR,
+        wordlistPath: WORDLIST_PATH,
+        inferenceLogDir: await freshTmpDir('solve-it-inflog-trace-'),
+        runsDir,
+        env: { NEBIUS_API_KEY: 'offline-test-placeholder-key' },
+        isTty: false,
+      };
+      if (puzzlesDir !== undefined) overrides.puzzlesDir = puzzlesDir;
+
+      const opts: SolveCliOptions = {
+        profile: 'baseline',
+        budgetUsd: PER_PUZZLE_BUDGET_USD,
+        seed: SEED,
+        verbose: 0,
+        watch: false,
+        offline: true,
+        offlineLenient: false,
+        trace: true,
+        inferenceLog: false,
+        out: join(await freshTmpDir('solve-it-out-trace-'), 'run.json'),
+      };
+      await solveCommand(target, opts, { color: false }, overrides);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      const traces = (await readdir(runsDir)).filter((name) => name.endsWith('.events.jsonl'));
+      expect(traces, `no trace written to ${runsDir}`).toHaveLength(1);
+      const events = (await readFile(join(runsDir, traces[0]!), 'utf8'))
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map((line) => JSON.parse(line) as { type: string; pattern?: string });
+
+      const wipeouts = events.filter((e) => e.type === 'search:wipeout');
+      expect(wipeouts.length, 'the fixture no longer wipes out; the re-ask assertion is moot').
+        toBeGreaterThan(0);
+      const reasks = events.filter((e) => e.type === 'slot:reask');
+      expect(reasks.length).toBeGreaterThan(0);
+      expect(reasks.some((e) => /[A-Z]/.test(e.pattern ?? ''))).toBe(true);
+    },
+    30_000,
+  );
+
   /**
    * Extracts the sha1 cache key from an OFFLINE_MISS message
    * (`src/candidates/service.ts`'s `offlineMiss`: `... (cache key <key>)`).

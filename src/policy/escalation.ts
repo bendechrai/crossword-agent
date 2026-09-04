@@ -22,6 +22,11 @@ import type { EscalationContext, EscalationDecision } from './types.js';
  * mirrors the two moments `decide` is consulted at (spec "Solver pipeline"
  * step 6) and keeps the two families of trigger mutually exclusive.
  *
+ * `ctx.domainSize` is the *pattern-filtered* live domain size (T62; see its
+ * doc comment on `EscalationContext`), so triggers 1, 2 and 5 fire for a slot
+ * whose surviving candidates all conflict with the letters on the board, not
+ * only for one whose domain is literally empty.
+ *
  * `decide` reads no clock, no config file and no global state - every input
  * it needs is in `ctx` - and it never mutates `ctx`.
  */
@@ -32,6 +37,18 @@ type Action = EscalationDecision['action'];
 const CAP_TIER2_PER_PUZZLE = 'maxTier2CallsPerPuzzle';
 const CAP_ESCALATIONS_PER_SLOT = 'escalationsPerSlot';
 const CAP_REASKS_PER_SLOT = 'reasksPerSlot';
+
+/**
+ * T62: a constrained re-ask is only worth asking for when the pattern carries
+ * at least one fixed letter - that letter is the whole point of the second
+ * ask (the algorithms doc's 43.5% -> 89.6% result), and the hooks' own guard
+ * refuses an all-`?` re-ask anyway. Treating "no fixed letter" as
+ * *unavailable* here, rather than leaving it for the hooks to discover, is
+ * what makes an empty domain at seed time escalate straight away (spec step
+ * 2: a slot empty after validation goes onto the escalation queue) instead of
+ * idling until trigger 5 escalates it at termination with an all-`?` pattern.
+ */
+const BLOCKER_NO_FIXED_LETTER = 'the pattern has no fixed letter for a constrained re-ask';
 
 const TRIGGER_LABEL: Record<Trigger, string> = {
   1: 'tier 1 returned unparseable JSON twice or zero candidates survived validation',
@@ -81,15 +98,27 @@ function detectTrigger(ctx: EscalationContext): Trigger | null {
 }
 
 /**
+ * Whether a constrained re-ask is worth choosing at all: the slot is under
+ * `reasksPerSlot` and the pattern carries at least one fixed letter (T62).
+ */
+function reaskIsAvailable(ctx: EscalationContext): boolean {
+  return ctx.reasksUsed < ctx.profile.reasksPerSlot && ctx.patternFixedLetters > 0;
+}
+
+/**
  * The action a trigger maps to for a given policy, before any cap is
  * checked (B13 decisions baked in):
- *   - `reask-first` (default) prefers `reask` while `reasksPerSlot` remains,
+ *   - `reask-first` (default) prefers `reask` while a re-ask is available,
  *     else `escalate`.
  *   - `eager` always prefers `escalate` and never `reask` (its profile sets
  *     `reasksPerSlot: 0`, which structurally blocks every re-ask attempt in
  *     the cap check below regardless of what this function returns).
- *   - `patient` prefers `reask` while `reasksPerSlot` remains, else `none`;
+ *   - `patient` prefers `reask` while a re-ask is available, else `none`;
  *     it escalates only on trigger 5.
+ * "Available" is `reasksPerSlot` remaining *and* at least one fixed letter in
+ * the pattern (T62): an all-`?` re-ask is the same question the seed pass has
+ * already asked, so under `reask-first` an empty domain with no fixed letter
+ * escalates immediately rather than waiting for termination.
  * Trigger 5 always prefers `escalate`, for every policy - it is the one
  * last-resort attempt before repair/give-up, and `patient`'s "escalate only
  * on trigger 5" phrasing is unremarkable for the other two policies (they
@@ -101,19 +130,17 @@ function desiredAction(trigger: Trigger, ctx: EscalationContext): Action {
   const policy = ctx.profile.escalation.policy;
   if (policy === 'eager') return 'escalate';
 
-  const reasksRemain = ctx.reasksUsed < ctx.profile.reasksPerSlot;
-  if (policy === 'patient') return reasksRemain ? 'reask' : 'none';
-  return reasksRemain ? 'reask' : 'escalate'; // reask-first (default)
+  const available = reaskIsAvailable(ctx);
+  if (policy === 'patient') return available ? 'reask' : 'none';
+  return available ? 'reask' : 'escalate'; // reask-first (default)
 }
 
-function composeReason(trigger: Trigger, action: Action, blockedCaps: readonly string[]): string {
+function composeReason(trigger: Trigger, action: Action, blockers: readonly string[]): string {
   const base = `trigger ${trigger}: ${TRIGGER_LABEL[trigger]}`;
-  if (blockedCaps.length === 0) {
+  if (blockers.length === 0) {
     return `${base}; action: ${action}`;
   }
-  const capList = blockedCaps.join(' and ');
-  const verb = blockedCaps.length > 1 ? 'are' : 'is';
-  return `${base}; downgraded to ${action} because ${capList} ${verb} exhausted`;
+  return `${base}; downgraded to ${action} because ${blockers.join(' and ')}`;
 }
 
 export function decide(ctx: EscalationContext): EscalationDecision {
@@ -123,23 +150,27 @@ export function decide(ctx: EscalationContext): EscalationDecision {
   }
 
   let action = desiredAction(trigger, ctx);
-  const blockedCaps: string[] = [];
+  const blockers: string[] = [];
 
   // Caps checked before any action: maxTier2CallsPerPuzzle, escalationsPerSlot,
   // reasksPerSlot. A cap that blocks the chosen action downgrades it
-  // (escalate -> reask -> none), and the reason string names the cap.
+  // (escalate -> reask -> none), and the reason string names the cap. The
+  // downgrade to `reask` also has to clear the fixed-letter condition, or the
+  // policy would hand the hooks an ask they are bound to refuse.
   if (action === 'escalate') {
     const tier2Blocked = ctx.tier2CallsUsed >= ctx.profile.escalation.maxTier2CallsPerPuzzle;
     const slotBlocked = ctx.escalationsUsed >= ctx.profile.escalation.escalationsPerSlot;
-    if (tier2Blocked) blockedCaps.push(CAP_TIER2_PER_PUZZLE);
-    if (slotBlocked) blockedCaps.push(CAP_ESCALATIONS_PER_SLOT);
+    if (tier2Blocked) blockers.push(`${CAP_TIER2_PER_PUZZLE} is exhausted`);
+    if (slotBlocked) blockers.push(`${CAP_ESCALATIONS_PER_SLOT} is exhausted`);
     if (tier2Blocked || slotBlocked) action = 'reask';
   }
 
   if (action === 'reask') {
-    const reaskBlocked = ctx.reasksUsed >= ctx.profile.reasksPerSlot;
-    if (reaskBlocked) {
-      blockedCaps.push(CAP_REASKS_PER_SLOT);
+    if (ctx.reasksUsed >= ctx.profile.reasksPerSlot) {
+      blockers.push(`${CAP_REASKS_PER_SLOT} is exhausted`);
+      action = 'none';
+    } else if (ctx.patternFixedLetters === 0) {
+      blockers.push(BLOCKER_NO_FIXED_LETTER);
       action = 'none';
     }
   }
@@ -151,5 +182,5 @@ export function decide(ctx: EscalationContext): EscalationDecision {
     action = 'give-up';
   }
 
-  return { action, trigger, reason: composeReason(trigger, action, blockedCaps) };
+  return { action, trigger, reason: composeReason(trigger, action, blockers) };
 }

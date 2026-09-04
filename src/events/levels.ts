@@ -41,6 +41,7 @@ export const MIN_LEVEL = {
   'repair:propose': 2,
   'repair:reject': 2,
   'rate:adjusted': 2,
+  'policy:refused': 2,
 
   'llm:request': 3,
   'llm:response': 3,
