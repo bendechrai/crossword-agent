@@ -101,45 +101,76 @@ describe('route: transport mode by capability (B9)', () => {
   });
 });
 
-describe('route: reasoning-off parameter (B41)', () => {
-  it('emits REASONING_OFF_PARAM for purpose seed on a reasoning-capable model (acceptance 4)', () => {
+describe('route: reasoning-off parameter (B41 as amended by T58)', () => {
+  /**
+   * The three prompt kinds the cache key records (spec: "Candidate service"
+   * step 1 - re-ask and repair both render `constrained`), paired with the
+   * `Purpose` values that reach them, so "seed, constrained and escalate" is
+   * covered by actual `CandidateRequest.purpose` values.
+   */
+  const TIER1_PURPOSES: ReadonlyArray<{ promptKind: string; purpose: CandidateRequest['purpose'] }> = [
+    { promptKind: 'seed', purpose: 'seed' },
+    { promptKind: 'constrained', purpose: 'reask' },
+    { promptKind: 'constrained', purpose: 'repair' },
+    { promptKind: 'escalate', purpose: 'escalate' },
+    { promptKind: 'seed', purpose: 'smoke' },
+    { promptKind: 'seed', purpose: 'calibrate' },
+  ];
+
+  for (const { promptKind, purpose } of TIER1_PURPOSES) {
+    it(`emits REASONING_OFF_PARAM for tier-1 purpose ${purpose} (${promptKind}) on a reasoning-capable model`, () => {
+      vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+      const profile = baseProfile({ tier1: 'catalogue/reasoning-model' });
+
+      const result = route(baseRequest({ tier: 1, purpose }), profile);
+
+      // T49 (docs/spikes/tier1-reliability.md section 1): "none" is the value
+      // measured to actually drive reasoningTokens to 0 against the live API.
+      // T58: sent for every tier-1 purpose, not just seed - with reasoning on,
+      // a non-seed tier-1 call spends its whole token budget on
+      // chain-of-thought and emits no JSON at all (see `reasoningOffApplies`).
+      expect(result.request.extra).toEqual(
+        expect.objectContaining({ [REASONING_OFF_PARAM]: REASONING_OFF_VALUE }),
+      );
+    });
+
+    it(`never emits it for tier-1 purpose ${purpose} on a model that does not advertise reasoning`, () => {
+      vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: false }));
+      const profile = baseProfile({ tier1: 'catalogue/non-reasoning-model' });
+
+      const result = route(baseRequest({ tier: 1, purpose }), profile);
+
+      expect(result.request.extra).toBeUndefined();
+    });
+  }
+
+  it('emits it for a tier-2 seed call on a reasoning-capable model (B41 unchanged there)', () => {
     vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
-    const profile = baseProfile({ tier1: 'catalogue/reasoning-model' });
+    const profile = baseProfile({ tier2: 'catalogue/reasoning-model' });
 
-    const result = route(baseRequest({ tier: 1, purpose: 'seed' }), profile);
+    const result = route(baseRequest({ tier: 2, purpose: 'seed' }), profile);
 
-    // T49 (docs/spikes/tier1-reliability.md section 1): "none" is the value
-    // measured to actually drive reasoningTokens to 0 against the live API.
     expect(result.request.extra).toEqual(
       expect.objectContaining({ [REASONING_OFF_PARAM]: REASONING_OFF_VALUE }),
     );
   });
 
-  it('does not emit it for purpose escalate on the same reasoning-capable model (acceptance 4)', () => {
+  it('does not emit it for a tier-2 escalate call: T58 is scoped to tier 1', () => {
     vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
-    const profile = baseProfile({ tier1: 'catalogue/reasoning-model' });
+    const profile = baseProfile({ tier2: 'catalogue/reasoning-model' });
 
-    const result = route(baseRequest({ tier: 1, purpose: 'escalate' }), profile);
+    const result = route(baseRequest({ tier: 2, purpose: 'escalate' }), profile);
 
     expect(result.request.extra?.[REASONING_OFF_PARAM]).toBeUndefined();
   });
 
-  it('does not emit it for purpose repair either', () => {
+  it('does not emit it for a tier-2 constrained (repair) call either', () => {
     vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
-    const profile = baseProfile({ tier1: 'catalogue/reasoning-model' });
+    const profile = baseProfile({ tier2: 'catalogue/reasoning-model' });
 
-    const result = route(baseRequest({ tier: 1, purpose: 'repair' }), profile);
+    const result = route(baseRequest({ tier: 2, purpose: 'repair' }), profile);
 
     expect(result.request.extra?.[REASONING_OFF_PARAM]).toBeUndefined();
-  });
-
-  it('never emits it for a model that does not advertise reasoning, even on a seed call', () => {
-    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: false }));
-    const profile = baseProfile({ tier1: 'catalogue/non-reasoning-model' });
-
-    const result = route(baseRequest({ tier: 1, purpose: 'seed' }), profile);
-
-    expect(result.request.extra).toBeUndefined();
   });
 });
 

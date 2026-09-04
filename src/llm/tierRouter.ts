@@ -11,7 +11,8 @@ import type { LlmRequest } from './types.js';
 
 /**
  * The provider parameter that turns reasoning off for a `reasoning`-capable
- * model on a seed call (B41), discovered against the live Nebius API by T49
+ * model (B41 as amended by T58 - see `route` below for the gate), discovered
+ * against the live Nebius API by T49
  * (see docs/spikes/tier1-reliability.md section 1). Nebius's own request
  * validator confirms the accepted literal values on a 422 for a bad one:
  * `"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`; `"none"`
@@ -98,6 +99,37 @@ function candidateResponseFormat(): { type: 'json_schema'; json_schema: unknown 
 const TOP_P_PARAM_NAME = 'top_p';
 
 /**
+ * Whether this request gets the reasoning-off parameter, for a model that
+ * advertises `reasoning` at all (the capability check is the caller's).
+ *
+ * B41 originally gated this on `purpose === 'seed'` alone, on the reasoning
+ * that chain-of-thought buys nothing when listing ten six-letter answers but
+ * might help a re-ask or an escalation. T58 supersedes that clause **for tier
+ * 1**, because the measurement says the opposite: T50's live inference log
+ * (docs/build-notes/wave-4.md, "T50 determinism fix") shows 2034 of 2039
+ * tier-1 `repair` records and 74 of 74 tier-1 `reask` records with reasoning
+ * on spending the entire `sampling.maxTokens` budget on chain-of-thought
+ * (`reasoningTokens: 512`, `completionTokens: 1024`) and emitting no JSON at
+ * all, so `llm/parser.ts` failed with "no JSON object found" on essentially
+ * every one of them. A non-seed tier-1 call with reasoning left on is not a
+ * better answer, it is no answer: the re-ask and repair phases were dead on
+ * tier 1, and (since `candidates/service.ts` never caches a parse failure)
+ * those keys could never enter the committed cache either.
+ *
+ * Tier 2 keeps B41's original gate. Tier 2 is the escalation model, it is
+ * reached only for the clues tier 1 could not settle, its
+ * `structured_outputs` mode constrains the answer shape independently of
+ * reasoning, and nothing has been measured there that would justify turning
+ * its reasoning off - T58's deliverable is scoped to tier 1 for exactly that
+ * reason. A tier-2 *seed* call (only reachable through a profile that puts
+ * the escalation model in the seed role) keeps the parameter, since that is
+ * the case B41 measured.
+ */
+function reasoningOffApplies(req: CandidateRequest): boolean {
+  return req.tier === 1 || req.purpose === 'seed';
+}
+
+/**
  * T32 (B9): maps `req.tier` to the profile's model id and picks the transport
  * form by advertised capability, never by model name.
  */
@@ -126,9 +158,7 @@ export function route(req: CandidateRequest, profile: Profile, opts: RouteOption
   }
 
   const extra: Record<string, unknown> = {};
-  // B41: reasoning-off is sent only for `purpose: 'seed'`, never for reask,
-  // escalate or repair, where reasoning may help.
-  if (capabilities.supportsReasoning && req.purpose === 'seed') {
+  if (capabilities.supportsReasoning && reasoningOffApplies(req)) {
     extra[REASONING_OFF_PARAM] = REASONING_OFF_VALUE;
   }
   // B38: `--seed` reaches the provider only when the catalogue advertises it.
