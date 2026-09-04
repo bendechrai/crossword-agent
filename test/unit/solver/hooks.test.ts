@@ -819,28 +819,52 @@ describe('createSearchHooks / termination and persistence', () => {
     expect(eventsOfType(h.events, 'slot:escalate')).toMatchObject([{ slotId: '4A' }]);
   });
 
-  it('refuses an all-? escalation while the calls are reserved for constrained slots (T62)', async () => {
-    // 1A is constrained and still unassigned, so it is a better candidate for
-    // the single remaining call than the all-? 2D - even though 1A turns out
-    // not to need one (its live domain still fits the board, so no trigger
-    // fires for it).
+  it('lets an all-? slot take a call the constrained slot did not need (T62)', async () => {
+    // 1A is constrained, so it is offered the single remaining call first -
+    // but it does not need one (its live domain still fits the board, so no
+    // trigger fires for it). The call is then genuinely spare, and the all-?
+    // 2D takes it as a last resort rather than being refused on behalf of a
+    // slot that has already been served.
     const profile = makeProfile({ escalation: { maxTier2CallsPerPuzzle: 1 } });
-    const h = harness({ profile });
+    const h = harness({ profile, queue: [result([candidate('OAR', 0.7, 2)])] });
     h.grid.assign('1D', 'CAT');
     h.domains.setBase('1A', [candidate('COT')]);
     h.domains.setBase('2D', []);
 
     const decisions = await h.hooks.onSearchTermination(['2D', '1A']);
 
-    expect(h.requests).toHaveLength(0);
-    expect(decisions[0]?.action).toBe('give-up');
+    expect(h.requests.map((req) => req.slotId)).toEqual(['2D']);
+    expect(h.requests[0]?.purpose).toBe('escalate');
+    expect(h.requests[0]?.pattern).toBe('???');
+    expect(decisions[0]?.action).toBe('escalate');
     expect(decisions[0]?.trigger).toBe(5);
     expect(decisions[1]?.action).toBe('none');
+    expect(h.domains.isSuspect('2D')).toBe(false);
+    expect(eventsOfType(h.events, 'slot:escalate')).toMatchObject([{ slotId: '2D' }]);
+  });
+
+  it('skips an all-? escalation only once the constrained slots used the cap up (T62)', async () => {
+    // The other side of the ordering rule: 1A and 4A are constrained and
+    // between them spend the whole remaining allowance, so by the time the
+    // all-? 2D is reached the tier-2 cap refuses it. No call is wasted on a
+    // pattern that tells the strong model nothing.
+    const profile = makeProfile({ reasksPerSlot: 0, escalation: { maxTier2CallsPerPuzzle: 2 } });
+    const h = harness({
+      profile,
+      queue: [result([candidate('COT', 0.7, 2)]), result([candidate('AXE', 0.7, 2)])],
+    });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+    h.domains.setBase('4A', []);
+    h.domains.setBase('2D', []);
+
+    const decisions = await h.hooks.onSearchTermination(['2D', '1A', '4A']);
+
+    expect(h.requests.map((req) => req.slotId)).toEqual(['1A', '4A']);
+    expect(decisions.map((d) => d.action)).toEqual(['give-up', 'escalate', 'escalate']);
+    expect(decisions[0]?.trigger).toBe(5);
+    expect(decisions[0]?.reason).toContain('maxTier2CallsPerPuzzle');
     expect(h.domains.isSuspect('2D')).toBe(true);
-    expect(eventsOfType(h.events, 'policy:refused')).toMatchObject([
-      { slotId: '2D', action: 'escalate' },
-    ]);
-    expect(decisions[0]?.reason).toContain('reserved for the constrained slots');
   });
 
   it('merged re-ask results survive undoTo(0) (B39)', async () => {

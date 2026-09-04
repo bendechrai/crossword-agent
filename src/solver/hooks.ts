@@ -99,11 +99,6 @@ const PHASE_ENDING_CAPS: ReadonlySet<BudgetCap> = new Set(['usd', 'tokens', 'wal
 /** Why an action was not executed once a run-global spend cap was crossed. */
 const PHASE_ENDED_REASON = 'a run-global budget cap was crossed and the run has stopped spending';
 
-/** Why an all-`?` trigger-5 escalation was refused (T62; see `onSearchTermination`). */
-const RESERVED_FOR_CONSTRAINED_REASON =
-  'the pattern has no fixed letter and the remaining tier-2 calls are reserved for the ' +
-  'constrained slots in the same termination pass';
-
 /** The per-slot state neither the search nor the policy holds. */
 interface SlotState {
   lastPatternQueried: string | null;
@@ -457,14 +452,6 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
     slotId: string,
     point: EscalationContext['point'],
     initialClueUnderstood: number | null,
-    /**
-     * T62: set at termination when this slot's remaining tier-2 allowance is
-     * spoken for by better candidates (see `RESERVED_FOR_CONSTRAINED_REASON`).
-     * An `escalate` the policy chooses is then refused rather than executed;
-     * `decide` is still consulted, so B13's "consulted once at termination for
-     * each still-empty slot" holds.
-     */
-    reservedReason: string | null = null,
   ): Promise<EscalationDecision> {
     if (stateOf(slotId).gaveUp) {
       return { action: 'give-up', reason: 'the slot was already given up' };
@@ -485,10 +472,6 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
         // slot, so a slot abandoned for want of budget stays distinguishable
         // from one the search never reached.
         return refuse(slotId, point, decision, PHASE_ENDED_REASON, executed);
-      }
-
-      if (reservedReason !== null && decision.action === 'escalate') {
-        return refuse(slotId, point, decision, reservedReason, executed);
       }
 
       if (decision.action === 'reask') {
@@ -551,22 +534,24 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
      * all-`?` patterns, the one shape of escalate prompt that tells the strong
      * model nothing the seed pass had not already told the cheap one.
      *
-     * Two rules fix that, and both are per pass:
-     *   1. slots are resolved in descending fixed-letter order (ties keep the
-     *      caller's order), so the constrained slots claim the remaining
-     *      tier-2 calls first;
-     *   2. a slot whose pattern has no fixed letter has its `escalate` refused
-     *      while the calls still available are at most the number of
-     *      constrained slots in the same pass - those are the better
-     *      candidates the allowance belongs to. With no constrained slot in
-     *      the pass, nothing is reserved and an all-`?` slot may still take
-     *      its last-resort call.
-     * `decide` is consulted for every slot either way (B13), and the returned
-     * array stays in the caller's order however the pass was resolved.
+     * The rule is ordering: the still-empty slots are resolved in descending
+     * fixed-letter order (ties keep the caller's order), so every constrained
+     * slot claims its call before any all-`?` slot is offered one. An all-`?`
+     * escalation is therefore skipped exactly when the better candidates have
+     * used the allowance up - `decide` sees `tier2CallsUsed` at the cap and
+     * downgrades, which is the same refusal the caps already impose - and
+     * never while calls are still going spare. There is deliberately no
+     * second, pre-emptive reservation on top of that: with this ordering the
+     * constrained slots of the pass are all resolved by the time the first
+     * all-`?` slot is reached, so reserving calls for them could only strand
+     * an allowance nothing else is going to spend.
+     *
+     * `decide` is consulted once for every slot either way (B13), and the
+     * returned array stays in the caller's order however the pass was
+     * resolved.
      */
     async onSearchTermination(emptySlotIds): Promise<EscalationDecision[]> {
       const fixedLetters = emptySlotIds.map((slotId) => fixedLetterCount(grid.patternFor(slotId)));
-      const constrainedCount = fixedLetters.filter((count) => count > 0).length;
       const order = fixedLetters.map((_count, index) => index);
       order.sort((a, b) => (fixedLetters[b] ?? 0) - (fixedLetters[a] ?? 0) || a - b);
 
@@ -574,18 +559,7 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
       for (const index of order) {
         const slotId = emptySlotIds[index];
         if (slotId === undefined) continue;
-        const callsLeft = Math.max(0, profile.escalation.maxTier2CallsPerPuzzle - tier2CallsUsed);
-        const reserved =
-          (fixedLetters[index] ?? 0) === 0 && constrainedCount > 0 && callsLeft <= constrainedCount;
-        byIndex.set(
-          index,
-          await resolve(
-            slotId,
-            'at-termination',
-            null,
-            reserved ? RESERVED_FOR_CONSTRAINED_REASON : null,
-          ),
-        );
+        byIndex.set(index, await resolve(slotId, 'at-termination', null));
       }
       return emptySlotIds.map(
         (_slotId, index) =>
