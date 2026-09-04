@@ -332,13 +332,19 @@ export async function search(
       pending = null;
       recordBest();
 
+      // T62: every emptied crossing is offered to the hooks, not only the
+      // ones up to the first that could not be refilled. One assignment
+      // routinely empties two or three crossings, and the slot that happens
+      // to be forward-checked first is no more deserving of a constrained
+      // re-ask than the rest; the first crossing that stays empty is still
+      // the backtrack target.
       const emptied = forwardCheck(node.slot.id);
       let failed: string | null = null;
       for (const emptiedId of emptied) {
         wipeouts += 1;
         emit({ type: 'search:wipeout', slotId: emptiedId });
-        if (failed !== null) continue;
-        if (!(await tryRefill(emptiedId, domains.depth()))) failed = emptiedId;
+        const refilled = await tryRefill(emptiedId, domains.depth());
+        if (!refilled && failed === null) failed = emptiedId;
       }
       if (failed !== null && !backtrack(failed, 'wipeout')) return 'exhausted';
     }

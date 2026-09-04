@@ -272,18 +272,89 @@ describe('createSearchHooks / onEmptyDomain re-ask guards', () => {
     expect(second.reason).toContain('already queried');
     expect(h.requests).toHaveLength(1);
     expect(eventsOfType(h.events, 'slot:reask')).toHaveLength(1);
+
+    // T62: a refused action is on the stream rather than only in the `none`
+    // the search is handed back.
+    expect(eventsOfType(h.events, 'policy:refused')).toEqual([
+      {
+        type: 'policy:refused',
+        slotId: '1A',
+        action: 'reask',
+        reason: 'pattern C?? was already queried for this slot',
+      },
+      {
+        type: 'policy:refused',
+        slotId: '1A',
+        action: 'reask',
+        reason: 'pattern C?? was already queried for this slot',
+      },
+    ]);
   });
 
-  it('never re-asks for an all-? pattern', async () => {
-    const h = harness();
+  it('never re-asks for an all-? pattern: it escalates once instead (T62)', async () => {
+    // The seed-time case. An all-`?` re-ask would be the same question the
+    // seed pass has already asked, so under reask-first the empty domain goes
+    // straight to tier 2 (spec step 2) rather than idling until termination.
+    const h = harness({ queue: [result([candidate('OAT', 0.7, 2)])] });
+    h.domains.setBase('1A', []);
+
+    const decision = await h.hooks.onEmptyDomain('1A', { pattern: '???', depth: 0 });
+
+    expect(decision.action).toBe('escalate');
+    expect(decision.trigger).toBe(1);
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0]?.tier).toBe(2);
+    expect(h.requests[0]?.purpose).toBe('escalate');
+    expect(h.requests[0]?.pattern).toBe('???');
+    expect(eventsOfType(h.events, 'slot:reask')).toHaveLength(0);
+    expect(eventsOfType(h.events, 'slot:escalate')).toHaveLength(1);
+  });
+
+  it('makes no call for an all-? pattern when escalationsPerSlot is 0', async () => {
+    const profile = makeProfile({ escalation: { escalationsPerSlot: 0 } });
+    const h = harness({ profile });
     h.domains.setBase('1A', []);
 
     const decision = await h.hooks.onEmptyDomain('1A', { pattern: '???', depth: 0 });
 
     expect(decision.action).toBe('none');
+    expect(decision.reason).toContain('escalationsPerSlot');
     expect(decision.reason).toContain('no fixed letter');
     expect(h.requests).toHaveLength(0);
-    expect(eventsOfType(h.events, 'slot:reask')).toHaveLength(0);
+  });
+
+  it('re-asks for a live domain whose every candidate conflicts with the pattern (T62)', async () => {
+    // The domain is not empty - `domains.sizeOf` says 1 - but nothing in it
+    // fits the letters on the board, which is the same thing as empty to the
+    // search. Before T62 the context reported the raw size and no trigger
+    // fired at all.
+    // reasksPerSlot 3 keeps T18's trigger-4 proxy (re-asks exhausted with a
+    // non-empty domain) from turning the second re-ask into an escalation.
+    const h = harness({
+      profile: makeProfile({ reasksPerSlot: 3 }),
+      queue: [result([candidate('CAR')]), result([candidate('CXE')])],
+    });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+
+    await h.hooks.onEmptyDomain('1A', { pattern: 'C??', depth: 1 });
+    expect(h.domains.get('1A').map((c) => c.answer)).toEqual(['CAR']);
+
+    // A second crossing lands, and the only live candidate no longer fits.
+    h.grid.assign('2D', 'XBC');
+    expect(h.domains.sizeOf('1A')).toBe(1);
+
+    const contextsBefore = h.contexts.length;
+    const decision = await h.hooks.onCandidatesReturned('1A', result([candidate('CAR')]));
+
+    expect(decision.action).toBe('reask');
+    // The context that chose the re-ask: the live domain holds one candidate
+    // and none of it fits the pattern, so the policy sees an empty domain.
+    expect(h.contexts[contextsBefore]?.domainSize).toBe(0);
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1]?.purpose).toBe('reask');
+    expect(h.requests[1]?.pattern).toBe('CX?');
+    expect(h.requests[1]?.rejected).toEqual([{ answer: 'CAR', reason: 'pattern' }]);
   });
 
   it('makes no call for a slot that has used every re-ask', async () => {
@@ -727,6 +798,73 @@ describe('createSearchHooks / termination and persistence', () => {
     expect(decisions[0]?.reason).toContain('run-global budget cap');
     expect(h.domains.isSuspect('4A')).toBe(true);
     expect(h.requests).toHaveLength(1);
+  });
+
+  it('spends the last tier-2 call on the constrained slot, not the first listed (T62)', async () => {
+    // 2D is listed first and has no fixed letter; 4A has one. With one call
+    // left, the constrained slot is the one worth escalating.
+    const profile = makeProfile({ escalation: { maxTier2CallsPerPuzzle: 1 } });
+    const h = harness({ profile, queue: [result([candidate('AXE', 0.7, 2)])] });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('2D', []);
+    h.domains.setBase('4A', []);
+
+    const decisions = await h.hooks.onSearchTermination(['2D', '4A']);
+
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0]?.slotId).toBe('4A');
+    expect(h.requests[0]?.pattern).toBe('A??');
+    // The returned array stays in the caller's order however it was resolved.
+    expect(decisions.map((d) => d.action)).toEqual(['give-up', 'escalate']);
+    expect(eventsOfType(h.events, 'slot:escalate')).toMatchObject([{ slotId: '4A' }]);
+  });
+
+  it('lets an all-? slot take a call the constrained slot did not need (T62)', async () => {
+    // 1A is constrained, so it is offered the single remaining call first -
+    // but it does not need one (its live domain still fits the board, so no
+    // trigger fires for it). The call is then genuinely spare, and the all-?
+    // 2D takes it as a last resort rather than being refused on behalf of a
+    // slot that has already been served.
+    const profile = makeProfile({ escalation: { maxTier2CallsPerPuzzle: 1 } });
+    const h = harness({ profile, queue: [result([candidate('OAR', 0.7, 2)])] });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', [candidate('COT')]);
+    h.domains.setBase('2D', []);
+
+    const decisions = await h.hooks.onSearchTermination(['2D', '1A']);
+
+    expect(h.requests.map((req) => req.slotId)).toEqual(['2D']);
+    expect(h.requests[0]?.purpose).toBe('escalate');
+    expect(h.requests[0]?.pattern).toBe('???');
+    expect(decisions[0]?.action).toBe('escalate');
+    expect(decisions[0]?.trigger).toBe(5);
+    expect(decisions[1]?.action).toBe('none');
+    expect(h.domains.isSuspect('2D')).toBe(false);
+    expect(eventsOfType(h.events, 'slot:escalate')).toMatchObject([{ slotId: '2D' }]);
+  });
+
+  it('skips an all-? escalation only once the constrained slots used the cap up (T62)', async () => {
+    // The other side of the ordering rule: 1A and 4A are constrained and
+    // between them spend the whole remaining allowance, so by the time the
+    // all-? 2D is reached the tier-2 cap refuses it. No call is wasted on a
+    // pattern that tells the strong model nothing.
+    const profile = makeProfile({ reasksPerSlot: 0, escalation: { maxTier2CallsPerPuzzle: 2 } });
+    const h = harness({
+      profile,
+      queue: [result([candidate('COT', 0.7, 2)]), result([candidate('AXE', 0.7, 2)])],
+    });
+    h.grid.assign('1D', 'CAT');
+    h.domains.setBase('1A', []);
+    h.domains.setBase('4A', []);
+    h.domains.setBase('2D', []);
+
+    const decisions = await h.hooks.onSearchTermination(['2D', '1A', '4A']);
+
+    expect(h.requests.map((req) => req.slotId)).toEqual(['1A', '4A']);
+    expect(decisions.map((d) => d.action)).toEqual(['give-up', 'escalate', 'escalate']);
+    expect(decisions[0]?.trigger).toBe(5);
+    expect(decisions[0]?.reason).toContain('maxTier2CallsPerPuzzle');
+    expect(h.domains.isSuspect('2D')).toBe(true);
   });
 
   it('merged re-ask results survive undoTo(0) (B39)', async () => {

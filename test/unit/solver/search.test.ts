@@ -512,6 +512,53 @@ describe('search', () => {
     expect(refusedResult.emptySlotIds).toContain('1A');
   });
 
+  it('offers every crossing a forward check empties to onEmptyDomain (T62)', async () => {
+    // 1A has a single value, so it is branched on first (a one-candidate
+    // domain has the largest possible margin). Assigning it empties both 2D
+    // and 3D; 1D survives. Before T62 only the first emptied crossing was
+    // offered a re-ask, and the rest were abandoned to the backjump.
+    const grid = new Grid(buildPuzzle('two-wipeouts', ['...', '...', '...']));
+    const domains = createDomainStore();
+    domains.setBase('1A', candidatesOf([{ answer: 'CAT', score: 0.99 }]));
+    domains.setBase('1D', candidatesOf([
+      { answer: 'CAB', score: 0.6 },
+      { answer: 'CAR', score: 0.55 },
+    ]));
+    domains.setBase('2D', candidatesOf([
+      { answer: 'BAT', score: 0.6 },
+      { answer: 'BAR', score: 0.55 },
+    ]));
+    domains.setBase('3D', candidatesOf([
+      { answer: 'BUS', score: 0.6 },
+      { answer: 'BUN', score: 0.55 },
+    ]));
+    domains.setBase('4A', candidatesOf([
+      { answer: 'ABS', score: 0.6 },
+      { answer: 'ABC', score: 0.55 },
+    ]));
+    domains.setBase('5A', candidatesOf([
+      { answer: 'RUN', score: 0.6 },
+      { answer: 'RUM', score: 0.55 },
+    ]));
+
+    const log = emptyLog();
+    const { events, emit } = recorder();
+    const result = await search(
+      grid,
+      domains,
+      fakeHooks(log),
+      emit,
+      // A single pass, so the count is the count of one forward check.
+      options({ ldsLimitMax: 0 }),
+    );
+
+    expect(ofType(events, 'search:wipeout').map((e) => e.slotId)).toEqual(['2D', '3D']);
+    expect(log.emptyDomain).toEqual(['2D', '3D']);
+    // The first crossing that stayed empty is still the backtrack target.
+    expect(ofType(events, 'search:backtrack')[0]?.reason).toBe('wipeout');
+    expect(result.complete).toBe(false);
+  });
+
   it('backjumps to an ancestor when a node runs out of values', async () => {
     const { grid, domains } = loadFixture('search-exhaust');
     const log = emptyLog();

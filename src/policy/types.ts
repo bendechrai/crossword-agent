@@ -30,6 +30,14 @@ export interface EscalationContext {
   slotId: string;
   point: 'after-candidates' | 'at-termination';
   clueUnderstood: number | null;
+  /**
+   * The number of live candidates for the slot that match its *current*
+   * pattern (T62). It is deliberately the pattern-filtered count and not the
+   * raw domain size: the search itself only ever branches on pattern-matching
+   * candidates, so a domain that is nominally live but wholly incompatible
+   * with the letters already on the board is empty as far as every trigger
+   * here is concerned.
+   */
   domainSize: number;
   parseFailures: number;
   reasksUsed: number;

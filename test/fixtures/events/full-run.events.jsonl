@@ -24,21 +24,22 @@
 {"type":"progress","runId":"fixture-full-run","seq":23,"tMs":1600,"phase":"search","assigned":3,"total":11,"elapsedMs":1600,"usd":0.01}
 {"type":"slot:reask","runId":"fixture-full-run","seq":24,"tMs":1700,"slotId":"6D","pattern":"Y??","attempt":2}
 {"type":"slot:escalate","runId":"fixture-full-run","seq":25,"tMs":1750,"slotId":"6D","trigger":2,"reason":"low confidence across two reasks","tier2CallsUsed":1}
-{"type":"search:backtrack","runId":"fixture-full-run","seq":26,"tMs":1800,"slotId":"5A","margin":0.1,"reason":"lowest margin among crossings of wiped slot"}
-{"type":"search:unassign","runId":"fixture-full-run","seq":27,"tMs":1805,"slotId":"5A","answer":"RAYON"}
-{"type":"search:wipeout","runId":"fixture-full-run","seq":28,"tMs":1810,"slotId":"6D"}
-{"type":"lds:restart","runId":"fixture-full-run","seq":29,"tMs":1820,"ldsLimit":1,"discrepanciesUsed":0}
-{"type":"phase:timing","runId":"fixture-full-run","seq":30,"tMs":1825,"phase":"search","label":"forwardcheck","ms":12}
-{"type":"budget:hit","runId":"fixture-full-run","seq":31,"tMs":1900,"cap":"backtracks","limit":50,"actual":50}
-{"type":"phase:end","runId":"fixture-full-run","seq":32,"tMs":2400,"phase":"search","durationMs":890}
-{"type":"phase:start","runId":"fixture-full-run","seq":33,"tMs":2410,"phase":"repair"}
-{"type":"repair:propose","runId":"fixture-full-run","seq":34,"tMs":2420,"slotId":"9A","before":"EY","after":"EX","editDistance":1,"gate":"pattern-valid"}
-{"type":"repair:reject","runId":"fixture-full-run","seq":35,"tMs":2425,"slotId":"9A","before":"EY","after":"EZ","gate":"tier1-rescore","reason":"score not improved"}
-{"type":"repair:accept","runId":"fixture-full-run","seq":36,"tMs":2430,"slotId":"9A","before":"EY","after":"EX","editDistance":1,"tier":1,"producedBy":"test/tier1-model"}
-{"type":"phase:end","runId":"fixture-full-run","seq":37,"tMs":2600,"phase":"repair","durationMs":190}
-{"type":"phase:start","runId":"fixture-full-run","seq":38,"tMs":2610,"phase":"score"}
-{"type":"phase:end","runId":"fixture-full-run","seq":39,"tMs":2650,"phase":"score","durationMs":40}
-{"type":"score:final","runId":"fixture-full-run","seq":40,"tMs":2660,"accuracy":{"letters":0.9545454545454546,"words":0.8181818181818182,"perfect":false,"emptyCells":0}}
-{"type":"cost:summary","runId":"fixture-full-run","seq":41,"tMs":2665,"perTier":{"tier1":{"calls":9,"usdBilled":0.0234,"usdCounterfactual":0.0234},"tier2":{"calls":1,"usdBilled":0.008,"usdCounterfactual":0.02}}}
-{"type":"grid:final","runId":"fixture-full-run","seq":42,"tMs":2670,"letters":[["O","H",null,"P","I"],["R","E","Y","O","N"],["A","V","O","I","D"],["L","O","U","S","E"],[null,"C",null,"E","X"]]}
-{"type":"run:end","runId":"fixture-full-run","seq":43,"tMs":2700,"status":"partial","wallMs":2700}
+{"type":"policy:refused","runId":"fixture-full-run","seq":26,"tMs":1770,"slotId":"6D","action":"reask","reason":"pattern Y?U was already queried for this slot"}
+{"type":"search:backtrack","runId":"fixture-full-run","seq":27,"tMs":1800,"slotId":"5A","margin":0.1,"reason":"lowest margin among crossings of wiped slot"}
+{"type":"search:unassign","runId":"fixture-full-run","seq":28,"tMs":1805,"slotId":"5A","answer":"RAYON"}
+{"type":"search:wipeout","runId":"fixture-full-run","seq":29,"tMs":1810,"slotId":"6D"}
+{"type":"lds:restart","runId":"fixture-full-run","seq":30,"tMs":1820,"ldsLimit":1,"discrepanciesUsed":0}
+{"type":"phase:timing","runId":"fixture-full-run","seq":31,"tMs":1825,"phase":"search","label":"forwardcheck","ms":12}
+{"type":"budget:hit","runId":"fixture-full-run","seq":32,"tMs":1900,"cap":"backtracks","limit":50,"actual":50}
+{"type":"phase:end","runId":"fixture-full-run","seq":33,"tMs":2400,"phase":"search","durationMs":890}
+{"type":"phase:start","runId":"fixture-full-run","seq":34,"tMs":2410,"phase":"repair"}
+{"type":"repair:propose","runId":"fixture-full-run","seq":35,"tMs":2420,"slotId":"9A","before":"EY","after":"EX","editDistance":1,"gate":"pattern-valid"}
+{"type":"repair:reject","runId":"fixture-full-run","seq":36,"tMs":2425,"slotId":"9A","before":"EY","after":"EZ","gate":"tier1-rescore","reason":"score not improved"}
+{"type":"repair:accept","runId":"fixture-full-run","seq":37,"tMs":2430,"slotId":"9A","before":"EY","after":"EX","editDistance":1,"tier":1,"producedBy":"test/tier1-model"}
+{"type":"phase:end","runId":"fixture-full-run","seq":38,"tMs":2600,"phase":"repair","durationMs":190}
+{"type":"phase:start","runId":"fixture-full-run","seq":39,"tMs":2610,"phase":"score"}
+{"type":"phase:end","runId":"fixture-full-run","seq":40,"tMs":2650,"phase":"score","durationMs":40}
+{"type":"score:final","runId":"fixture-full-run","seq":41,"tMs":2660,"accuracy":{"letters":0.9545454545454546,"words":0.8181818181818182,"perfect":false,"emptyCells":0}}
+{"type":"cost:summary","runId":"fixture-full-run","seq":42,"tMs":2665,"perTier":{"tier1":{"calls":9,"usdBilled":0.0234,"usdCounterfactual":0.0234},"tier2":{"calls":1,"usdBilled":0.008,"usdCounterfactual":0.02}}}
+{"type":"grid:final","runId":"fixture-full-run","seq":43,"tMs":2670,"letters":[["O","H",null,"P","I"],["R","E","Y","O","N"],["A","V","O","I","D"],["L","O","U","S","E"],[null,"C",null,"E","X"]]}
+{"type":"run:end","runId":"fixture-full-run","seq":44,"tMs":2700,"status":"partial","wallMs":2700}

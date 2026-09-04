@@ -7,6 +7,13 @@ import type { Profile } from './schema.js';
  * `tier1-only`, `strong-only`, `votes3`, `batch1`, `batch2`, `batch3`,
  * `batch5`, `batch8`.
  *
+ * `maxTier2CallsPerPuzzle` is 25 rather than the schema default of 15 (T62):
+ * the canonical bench spent the 15 on all-`?` escalations at termination, and
+ * once the constrained re-ask fires first the cap has to cover the slots that
+ * genuinely reach tier 2 with letters on the board (about 20% of the slots of
+ * a 15x15, which is what the algorithms doc's "start at 15" was aiming at).
+ * `tier1-only` keeps 0, which is what makes it tier-1 only.
+ *
  * Every field is written out on every profile below (not spread from
  * `baseline` with overrides), so a reader never has to mentally apply a diff
  * to see what a profile actually does. The batch family is written out as
@@ -27,7 +34,7 @@ export const baseline = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -50,7 +57,7 @@ export const eagerEscalation = {
   escalation: {
     policy: 'eager',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -73,7 +80,7 @@ export const patient = {
   escalation: {
     policy: 'patient',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 500 },
@@ -96,7 +103,7 @@ export const noRepair = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -142,7 +149,7 @@ export const strongOnly = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -165,7 +172,7 @@ export const votes3 = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -188,7 +195,7 @@ export const batch1 = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -211,7 +218,7 @@ export const batch2 = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -234,7 +241,7 @@ export const batch3 = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -257,7 +264,7 @@ export const batch5 = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
@@ -280,7 +287,7 @@ export const batch8 = {
   escalation: {
     policy: 'reask-first',
     clueUnderstoodThreshold: 0.4,
-    maxTier2CallsPerPuzzle: 15,
+    maxTier2CallsPerPuzzle: 25,
     escalationsPerSlot: 1,
   },
   search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },

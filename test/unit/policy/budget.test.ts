@@ -31,7 +31,7 @@ describe('resolveBudget', () => {
       usd: 0.5,
       tokens: 2_000_000,
       wallMs: 900_000,
-      tier2Calls: 15,
+      tier2Calls: 25,
       backtracks: 200,
       repairCalls: 30,
     });

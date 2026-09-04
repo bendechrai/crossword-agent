@@ -63,6 +63,15 @@ function makeCtx(overrides: Partial<EscalationContext> & { profile: Profile }): 
 }
 
 /**
+ * A pattern with two letters already fixed by crossings. T62 makes a
+ * constrained re-ask "available" only when the pattern carries at least one
+ * fixed letter, so every row below that expects a `reask` has to say so: an
+ * all-`?` pattern (the `makeCtx` default) is the case where there is nothing
+ * for a second cheap ask to use.
+ */
+const CONSTRAINED = { patternFixedLetters: 2, currentPattern: 'A?I?N' } as const;
+
+/**
  * Acceptance 1: a table-driven test, one row per trigger (five rows) x three
  * policies (15 cases), asserting `action` and `trigger`.
  *
@@ -84,13 +93,23 @@ const table: Array<{
   {
     policy: 'reask-first',
     trigger: 1,
-    ctx: makeCtx({ profile: makeProfile({ policy: 'reask-first' }), domainSize: 0, reasksUsed: 0 }),
+    ctx: makeCtx({
+      profile: makeProfile({ policy: 'reask-first' }),
+      domainSize: 0,
+      reasksUsed: 0,
+      ...CONSTRAINED,
+    }),
     action: 'reask',
   },
   {
     policy: 'reask-first',
     trigger: 2,
-    ctx: makeCtx({ profile: makeProfile({ policy: 'reask-first' }), domainSize: 0, reasksUsed: 1 }),
+    ctx: makeCtx({
+      profile: makeProfile({ policy: 'reask-first' }),
+      domainSize: 0,
+      reasksUsed: 1,
+      ...CONSTRAINED,
+    }),
     action: 'reask',
   },
   {
@@ -102,6 +121,7 @@ const table: Array<{
       clueUnderstood: 0.1,
       reasksUsed: 0,
       escalationsUsed: 0,
+      ...CONSTRAINED,
     }),
     action: 'reask',
   },
@@ -186,13 +206,23 @@ const table: Array<{
   {
     policy: 'patient',
     trigger: 1,
-    ctx: makeCtx({ profile: makeProfile({ policy: 'patient' }), domainSize: 0, reasksUsed: 0 }),
+    ctx: makeCtx({
+      profile: makeProfile({ policy: 'patient' }),
+      domainSize: 0,
+      reasksUsed: 0,
+      ...CONSTRAINED,
+    }),
     action: 'reask',
   },
   {
     policy: 'patient',
     trigger: 2,
-    ctx: makeCtx({ profile: makeProfile({ policy: 'patient' }), domainSize: 0, reasksUsed: 1 }),
+    ctx: makeCtx({
+      profile: makeProfile({ policy: 'patient' }),
+      domainSize: 0,
+      reasksUsed: 1,
+      ...CONSTRAINED,
+    }),
     action: 'reask',
   },
   {
@@ -204,6 +234,7 @@ const table: Array<{
       clueUnderstood: 0.1,
       reasksUsed: 0,
       escalationsUsed: 0,
+      ...CONSTRAINED,
     }),
     action: 'reask',
   },
@@ -255,7 +286,13 @@ describe('decide precedence and caps', () => {
 
   it('downgrades escalate to reask when maxTier2CallsPerPuzzle is exhausted, naming the cap', () => {
     const profile = makeProfile({ policy: 'eager', maxTier2CallsPerPuzzle: 3, reasksPerSlot: 3 });
-    const ctx = makeCtx({ profile, domainSize: 0, reasksUsed: 1, tier2CallsUsed: 3 });
+    const ctx = makeCtx({
+      profile,
+      domainSize: 0,
+      reasksUsed: 1,
+      tier2CallsUsed: 3,
+      ...CONSTRAINED,
+    });
     const result = decide(ctx);
     expect(result.trigger).toBe(2);
     expect(result.action).toBe('reask');
@@ -264,7 +301,13 @@ describe('decide precedence and caps', () => {
 
   it('downgrades to none when both tier-2 calls and re-asks are exhausted, naming both caps', () => {
     const profile = makeProfile({ policy: 'eager', maxTier2CallsPerPuzzle: 3, reasksPerSlot: 3 });
-    const ctx = makeCtx({ profile, domainSize: 0, reasksUsed: 3, tier2CallsUsed: 3 });
+    const ctx = makeCtx({
+      profile,
+      domainSize: 0,
+      reasksUsed: 3,
+      tier2CallsUsed: 3,
+      ...CONSTRAINED,
+    });
     const result = decide(ctx);
     expect(result.trigger).toBe(2);
     expect(result.action).toBe('none');
@@ -309,12 +352,98 @@ describe('decide precedence and caps', () => {
   it('is referentially transparent and does not mutate a frozen context', () => {
     const profile = makeProfile({ policy: 'reask-first' });
     const ctx = Object.freeze(
-      makeCtx({ profile, domainSize: 0, reasksUsed: 1 }),
+      makeCtx({ profile, domainSize: 0, reasksUsed: 1, ...CONSTRAINED }),
     );
     const first = decide(ctx);
     const second = decide(ctx);
     expect(second).toEqual(first);
     expect(ctx.domainSize).toBe(0);
     expect(ctx.reasksUsed).toBe(1);
+  });
+});
+
+/**
+ * T62. The one signal that makes a constrained re-ask worth its call is a
+ * fixed letter in the pattern. Without one, `reask-first` used to choose a
+ * `reask` that the search hooks were bound to refuse, and the slot idled
+ * until trigger 5 escalated it at termination with an all-`?` pattern.
+ */
+describe('decide: a re-ask needs a fixed letter (T62)', () => {
+  it('escalates immediately on an empty domain with no fixed letter under reask-first', () => {
+    const profile = makeProfile({ policy: 'reask-first', reasksPerSlot: 2 });
+    const result = decide(
+      makeCtx({ profile, domainSize: 0, reasksUsed: 0, patternFixedLetters: 0 }),
+    );
+    expect(result.trigger).toBe(1);
+    expect(result.action).toBe('escalate');
+  });
+
+  it('re-asks on an empty domain with fixed letters and re-asks remaining', () => {
+    const profile = makeProfile({ policy: 'reask-first', reasksPerSlot: 2 });
+    const result = decide(makeCtx({ profile, domainSize: 0, reasksUsed: 0, ...CONSTRAINED }));
+    expect(result.trigger).toBe(1);
+    expect(result.action).toBe('reask');
+  });
+
+  it('downgrades to none, naming both blockers, when the tier-2 cap is spent and nothing is fixed', () => {
+    const profile = makeProfile({
+      policy: 'reask-first',
+      reasksPerSlot: 2,
+      maxTier2CallsPerPuzzle: 3,
+    });
+    const result = decide(
+      makeCtx({ profile, domainSize: 0, reasksUsed: 0, tier2CallsUsed: 3, patternFixedLetters: 0 }),
+    );
+    expect(result.trigger).toBe(1);
+    expect(result.action).toBe('none');
+    expect(result.reason).toContain('maxTier2CallsPerPuzzle');
+    expect(result.reason).toContain('no fixed letter');
+  });
+
+  it('still downgrades an escalation to a re-ask when the pattern is constrained', () => {
+    // `eager` is the policy that reaches for tier 2 first, so it is the one
+    // whose downgrade path the fixed-letter condition has to leave intact.
+    const profile = makeProfile({
+      policy: 'eager',
+      reasksPerSlot: 2,
+      maxTier2CallsPerPuzzle: 3,
+    });
+    const result = decide(
+      makeCtx({ profile, domainSize: 0, reasksUsed: 0, tier2CallsUsed: 3, ...CONSTRAINED }),
+    );
+    expect(result.action).toBe('reask');
+    expect(result.reason).toContain('maxTier2CallsPerPuzzle');
+  });
+
+  it('gives up at termination when the slot is empty, unconstrained and the tier-2 cap is spent', () => {
+    const profile = makeProfile({
+      policy: 'patient',
+      reasksPerSlot: 3,
+      maxTier2CallsPerPuzzle: 2,
+    });
+    const result = decide(
+      makeCtx({
+        profile,
+        point: 'at-termination',
+        domainSize: 0,
+        tier2CallsUsed: 2,
+        patternFixedLetters: 0,
+      }),
+    );
+    expect(result.trigger).toBe(5);
+    expect(result.action).toBe('give-up');
+  });
+
+  it('leaves patient with nothing to do when a wipeout has no fixed letter to re-ask on', () => {
+    // `patient` never escalates before trigger 5, so an unconstrained wipeout
+    // has no action available to it at all - which is the policy working as
+    // specified, not a cap refusing anything.
+    const profile = makeProfile({ policy: 'patient', reasksPerSlot: 3 });
+    const result = decide(
+      makeCtx({ profile, domainSize: 0, reasksUsed: 0, patternFixedLetters: 0 }),
+    );
+    expect(result.trigger).toBe(1);
+    expect(result.action).toBe('none');
+    expect(result.reason).toContain('action: none');
   });
 });

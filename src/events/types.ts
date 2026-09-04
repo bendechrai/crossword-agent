@@ -146,6 +146,24 @@ export interface SlotEscalateEvent extends EventBase {
   tier2CallsUsed: number;
 }
 
+/**
+ * T62: a decision `policy/escalation.ts` made that the search hooks could not
+ * execute - a re-ask for a pattern already queried, an action refused because
+ * a run-global spend cap has stopped the run spending, or a trigger-5
+ * escalation skipped so the remaining tier-2 calls go to constrained slots.
+ * The policy's verdict is otherwise invisible in a trace (the hooks report it
+ * back to the search as `none` or `give-up`), which is what made the
+ * constrained re-ask's absence hard to see in the first place.
+ */
+export interface PolicyRefusedEvent extends EventBase {
+  type: 'policy:refused';
+  slotId: string;
+  /** The action `decide` chose and this run did not carry out. */
+  action: 'none' | 'reask' | 'escalate' | 'give-up';
+  /** Why it was refused, in the guard's own words. */
+  reason: string;
+}
+
 export interface RepairAcceptEvent extends EventBase {
   type: 'repair:accept';
   slotId: string;
@@ -322,6 +340,7 @@ export type SolverEvent =
   | SearchAssignEvent
   | SlotReaskEvent
   | SlotEscalateEvent
+  | PolicyRefusedEvent
   | RepairAcceptEvent
   | RateLimitedEvent
   | PatternBuiltEvent

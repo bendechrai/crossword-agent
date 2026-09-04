@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-5x5--baseline--20260904T193801Z--1df1aeb1",
-  "timestamp": "2026-09-04T19:38:01.805Z",
+  "runId": "synthetic-5x5--baseline--20260904T205040Z--1f46a839",
+  "timestamp": "2026-09-04T20:50:40.485Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-5x5",
@@ -26,7 +26,7 @@
     "escalation": {
       "policy": "reask-first",
       "clueUnderstoodThreshold": 0.4,
-      "maxTier2CallsPerPuzzle": 15,
+      "maxTier2CallsPerPuzzle": 25,
       "escalationsPerSlot": 1
     },
     "search": {
@@ -401,6 +401,6 @@
     "proposals": 269,
     "accepted": 2
   },
-  "wallMs": 29,
+  "wallMs": 25,
   "budgetHits": []
 }

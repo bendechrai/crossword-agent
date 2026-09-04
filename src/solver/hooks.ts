@@ -170,6 +170,22 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
     return created;
   }
 
+  /**
+   * T62: the live candidates for `slotId` that match `pattern`, which is what
+   * `EscalationContext.domainSize` reports. `domains.sizeOf` is the *raw*
+   * count and disagreed with the search, whose `valuesFor` is pattern-filtered:
+   * a domain still holding candidates that all conflict with the letters on
+   * the board is empty as far as the search is concerned, and reporting it as
+   * non-empty kept triggers 1, 2 and 5 from ever firing for it.
+   */
+  function liveDomainSize(slotId: string, pattern: string): number {
+    let live = 0;
+    for (const candidate of domains.get(slotId)) {
+      if (patternMatches(pattern, candidate.answer)) live += 1;
+    }
+    return live;
+  }
+
   function slotOf(slotId: string): Slot {
     const slot = grid.slots.get(slotId);
     if (slot === undefined) {
@@ -352,7 +368,7 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
       slotId,
       point,
       clueUnderstood,
-      domainSize: domains.sizeOf(slotId),
+      domainSize: liveDomainSize(slotId, pattern),
       parseFailures: parseFailuresOf(slotId),
       reasksUsed: state.reasksUsed,
       escalationsUsed: state.escalationsUsed,
@@ -377,6 +393,18 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
   }
 
   /**
+   * T62: every action the policy chose and this module did not carry out is
+   * announced on the stream, so a trace or a run record shows the refusal
+   * rather than only the `none` / `give-up` the search is handed back. It is
+   * emitted whether or not an earlier round of the same `resolve` call did
+   * execute something, because the refusal is a fact about this run either
+   * way.
+   */
+  function noteRefusal(slotId: string, action: EscalationDecision['action'], why: string): void {
+    emit({ type: 'policy:refused', slotId, action, reason: why });
+  }
+
+  /**
    * A decision this module cannot execute. At search termination that is a
    * give-up (nothing else is left to try); mid-search it is `none`, and the
    * search backtracks.
@@ -395,6 +423,22 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
     };
     if (decision.trigger !== undefined) out.trigger = decision.trigger;
     return out;
+  }
+
+  /**
+   * Reports a refused action: it emits `policy:refused` and then reports the
+   * outcome the same way as before - whatever an earlier round of this
+   * `resolve` call executed, or `none` / `give-up` when nothing did.
+   */
+  function refuse(
+    slotId: string,
+    point: EscalationContext['point'],
+    decision: EscalationDecision,
+    why: string,
+    executed: EscalationDecision | null,
+  ): EscalationDecision {
+    noteRefusal(slotId, decision.action, why);
+    return executed ?? notExecuted(slotId, point, decision, why);
   }
 
   /**
@@ -427,13 +471,13 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
         // `none` mid-search, and at termination a give-up that marks the
         // slot, so a slot abandoned for want of budget stays distinguishable
         // from one the search never reached.
-        return executed ?? notExecuted(slotId, point, decision, PHASE_ENDED_REASON);
+        return refuse(slotId, point, decision, PHASE_ENDED_REASON, executed);
       }
 
       if (decision.action === 'reask') {
         const blocked = reaskBlockedBy(slotId, pattern);
         if (blocked !== null) {
-          return executed ?? notExecuted(slotId, point, decision, blocked);
+          return refuse(slotId, point, decision, blocked, executed);
         }
         const result = await runReask(slotId, pattern);
         clueUnderstood = result.clueUnderstood;
@@ -446,9 +490,7 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
       if (decision.action === 'escalate') {
         const trigger = decision.trigger;
         if (trigger === undefined) {
-          return (
-            executed ?? notExecuted(slotId, point, decision, 'the decision carried no trigger')
-          );
+          return refuse(slotId, point, decision, 'the decision carried no trigger', executed);
         }
         const result = await runEscalate(slotId, pattern, trigger, decision.reason);
         clueUnderstood = result.clueUnderstood;
@@ -485,12 +527,44 @@ export function createSearchHooks(deps: SearchHooksDeps): SearchHooks {
       return resolve(slotId, 'after-candidates', result.clueUnderstood);
     },
 
+    /**
+     * T62. The trigger-5 pass is where the last of the tier-2 allowance is
+     * spent, and it used to be spent in whatever order the search happened to
+     * list its empty slots - which on a real puzzle meant most of it went on
+     * all-`?` patterns, the one shape of escalate prompt that tells the strong
+     * model nothing the seed pass had not already told the cheap one.
+     *
+     * The rule is ordering: the still-empty slots are resolved in descending
+     * fixed-letter order (ties keep the caller's order), so every constrained
+     * slot claims its call before any all-`?` slot is offered one. An all-`?`
+     * escalation is therefore skipped exactly when the better candidates have
+     * used the allowance up - `decide` sees `tier2CallsUsed` at the cap and
+     * downgrades, which is the same refusal the caps already impose - and
+     * never while calls are still going spare. There is deliberately no
+     * second, pre-emptive reservation on top of that: with this ordering the
+     * constrained slots of the pass are all resolved by the time the first
+     * all-`?` slot is reached, so reserving calls for them could only strand
+     * an allowance nothing else is going to spend.
+     *
+     * `decide` is consulted once for every slot either way (B13), and the
+     * returned array stays in the caller's order however the pass was
+     * resolved.
+     */
     async onSearchTermination(emptySlotIds): Promise<EscalationDecision[]> {
-      const decisions: EscalationDecision[] = [];
-      for (const slotId of emptySlotIds) {
-        decisions.push(await resolve(slotId, 'at-termination', null));
+      const fixedLetters = emptySlotIds.map((slotId) => fixedLetterCount(grid.patternFor(slotId)));
+      const order = fixedLetters.map((_count, index) => index);
+      order.sort((a, b) => (fixedLetters[b] ?? 0) - (fixedLetters[a] ?? 0) || a - b);
+
+      const byIndex = new Map<number, EscalationDecision>();
+      for (const index of order) {
+        const slotId = emptySlotIds[index];
+        if (slotId === undefined) continue;
+        byIndex.set(index, await resolve(slotId, 'at-termination', null));
       }
-      return decisions;
+      return emptySlotIds.map(
+        (_slotId, index) =>
+          byIndex.get(index) ?? { action: 'none', reason: 'the slot was not resolved' },
+      );
     },
 
     chargeBudget(cap, amount): { exceeded: BudgetCap | null } {
