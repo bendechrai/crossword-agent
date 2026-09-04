@@ -1,0 +1,18 @@
+{
+  "name": "modern-12",
+  "note": "12 puzzles for bench runs: 8 american, 4 cryptic. This is the standard bench set (T64): 8 2024 Los Angeles Times weekday dailies fetched from the xd corpus plus 4 Guardian cryptics. Puzzles are fetched locally on demand with `xw fetch` and are never committed to this repository (no-distribution policy) - only these ids are. See docs/benches/SETS.md for the exact, reproducible fetch recipe.",
+  "puzzles": [
+    { "id": "xd-lat2024-01-08", "stratum": "american" },
+    { "id": "xd-lat2024-02-14", "stratum": "american" },
+    { "id": "xd-lat2024-03-21", "stratum": "american" },
+    { "id": "xd-lat2024-04-26", "stratum": "american" },
+    { "id": "xd-lat2024-06-10", "stratum": "american" },
+    { "id": "xd-lat2024-07-17", "stratum": "american" },
+    { "id": "xd-lat2024-09-11", "stratum": "american" },
+    { "id": "xd-lat2024-11-14", "stratum": "american" },
+    { "id": "guardian-cryptic-30100", "stratum": "cryptic" },
+    { "id": "guardian-cryptic-30101", "stratum": "cryptic" },
+    { "id": "guardian-cryptic-30102", "stratum": "cryptic" },
+    { "id": "guardian-cryptic-30103", "stratum": "cryptic" }
+  ]
+}
