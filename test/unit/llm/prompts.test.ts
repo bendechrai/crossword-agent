@@ -144,11 +144,12 @@ const PLAIN = { inlineSchema: false };
 const INLINE = { inlineSchema: true };
 
 describe('PROMPT_VERSION', () => {
-  // B49: bumping this is a single-owner action (T31) that lands the regenerated
-  // cache and snapshots in the same commit. No feature task may bump it, and it
-  // is a bare "1", never "v1".
-  it('is the string "1" for all of v1 (acceptance 6)', () => {
-    expect(PROMPT_VERSION).toBe('1');
+  // B49: bumping this is a single-owner action that lands the regenerated cache
+  // and snapshots in the same commit. No feature task may bump it, and it is a
+  // bare digit, never "v2". T63 bumped it from "1" to "2" for the length
+  // self-check and the reworded clue_understood scale.
+  it('is the string "2" (T31 acceptance 6, as amended by T63)', () => {
+    expect(PROMPT_VERSION).toBe('2');
   });
 });
 
@@ -449,6 +450,148 @@ describe('inline schema variant (acceptance 7, B9)', () => {
     expect(plain).not.toContain('JSON Schema');
     expect(plain).not.toContain('Worked example');
     expect(systemText(rendered).startsWith(plain)).toBe(true);
+  });
+});
+
+/** The line every single-clue template ends on: slot id, exact count, self-check. */
+function lastAskLine(slotId: string, length: number): string {
+  return (
+    `Every answer for ${slotId} is exactly ${length} letters long: count the letters of each ` +
+    `answer, drop any answer whose count is not ${length}, and write the counts you kept in "notes".`
+  );
+}
+
+/**
+ * T63 acceptance 1. The bench's dominant rejection reason is a wrong-length
+ * answer (85% of all rejections), from a prompt that stated the length once,
+ * many lines above the answer. Both halves of the fix are asserted here: the
+ * count is restated as the LAST line the model reads, and the self-check
+ * ("count it, drop the ones that do not match") is in the system message of
+ * all three templates.
+ */
+describe('length discipline (T63, acceptance 1)', () => {
+  const singles: ReadonlyArray<{ kind: string; rendered: RenderedPrompt; last: string }> = [
+    { kind: 'seed', rendered: renderPrompt(SEED_REQUEST, 'seed', PLAIN), last: lastAskLine('9A', 7) },
+    {
+      kind: 'constrained',
+      rendered: renderPrompt(REASK_REQUEST, 'constrained', PLAIN),
+      last: lastAskLine('12A', 5),
+    },
+    {
+      kind: 'escalate',
+      rendered: renderPrompt(ESCALATE_REQUEST, 'escalate', PLAIN),
+      last: lastAskLine('6D', 3),
+    },
+  ];
+
+  for (const { kind, rendered, last } of singles) {
+    it(`${kind}: restates the exact letter count as the last line before the answer`, () => {
+      const lines = userText(rendered).split('\n');
+      expect(lines[lines.length - 1]).toBe(last);
+    });
+
+    it(`${kind}: carries the count-and-drop self-check in the system message`, () => {
+      const system = systemText(rendered);
+      expect(system).toContain(
+        'Count the letters of each answer before you write it into "candidates"',
+      );
+      expect(system).toContain('leave out any answer whose count does not match');
+      expect(system).toContain(
+        '- "notes" is one short line giving the letter count of each answer you kept',
+      );
+    });
+  }
+
+  it('says "1 letter" rather than "1 letters" in the restatement too', () => {
+    const text = userText(renderPrompt(request({ length: 1, pattern: '?' }), 'seed', PLAIN));
+    expect(text.endsWith('is exactly 1 letter long: count the letters of each answer, drop any answer whose count is not 1, and write the counts you kept in "notes".')).toBe(true);
+  });
+
+  it('ends the batched user message with the same rule, keyed to each clue\'s length', () => {
+    const lines = userText(renderBatchedSeedPrompt(BATCH_REQUESTS, PLAIN)).split('\n');
+    expect(lines[lines.length - 1]).toBe(
+      'Every answer is exactly as many letters as its own clue\'s "length" above: count the letters of each answer, drop any whose count does not match that clue\'s "length", and write the counts you kept in that result\'s "notes".',
+    );
+  });
+
+  it('shows the counts in every one-shot example, and the counts are right', () => {
+    for (const system of [
+      systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE)),
+      systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE)),
+    ]) {
+      const notes = [...system.matchAll(/"notes": "([^"]+)"/g)].map((match) => match[1] ?? '');
+      expect(notes.length).toBeGreaterThanOrEqual(2);
+      for (const note of notes) {
+        for (const pair of note.split(' ')) {
+          const [answer, count] = pair.split('=');
+          expect(answer?.length).toBe(Number(count));
+        }
+      }
+    }
+  });
+
+  it('keeps every example answer at the length its own example request asked for', () => {
+    const system = systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE));
+    // "Clue 2D: ..." is asked at 5 letters, "Clue 5D: Charge" at 4.
+    expect(system).toContain('Clue 2D: Chaos and destruction');
+    expect(system).toContain('Clue 5D: Charge');
+    expect(system).toContain(lastAskLine('2D', 5));
+    expect(system).toContain(lastAskLine('5D', 4));
+  });
+});
+
+/** Every `clue_understood` value shown in an example (never the schema's type). */
+function exampleUnderstood(text: string): number[] {
+  return [...text.matchAll(/"clue_understood": ([0-9.]+)/g)].map((match) => Number(match[1]));
+}
+
+/**
+ * T63 acceptance 2. 5,258 of the 5,279 parsed seed responses on the canonical
+ * bench reported exactly 0.9, which is the number version 1's single example
+ * hard-coded, so the escalation trigger at 0.4 could never fire.
+ */
+describe('clue_understood guidance (T63, acceptance 2)', () => {
+  const system = systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE));
+
+  it('describes the scale in words rather than by example alone', () => {
+    expect(system).toContain(
+      '1.0 only when the clue is unambiguous and your best answer is certain',
+    );
+    expect(system).toContain(
+      'around 0.5 when you understand what the clue is asking but the answer is a guess',
+    );
+    expect(system).toContain('below 0.3 when the clue itself is opaque to you');
+    expect(system).toContain('the same number on every clue tells the solver nothing');
+  });
+
+  it('says it is a routing signal and not a score for any answer', () => {
+    expect(system).toContain('It is a routing signal, not a score for any answer');
+  });
+
+  it('varies the single form\'s examples, with one at or below 0.5', () => {
+    const values = exampleUnderstood(system);
+    expect(values).toEqual([1, 0.5]);
+    expect(Math.min(...values)).toBeLessThanOrEqual(0.5);
+  });
+
+  it('varies the batched form\'s examples too, with one at or below 0.5', () => {
+    const values = exampleUnderstood(systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE)));
+    expect(values).toEqual([1, 0.5]);
+  });
+
+  it('hard-codes 0.9 nowhere, in any template', () => {
+    for (const kind of ['seed', 'constrained', 'escalate'] as const) {
+      expect(exampleUnderstood(systemText(renderPrompt(SEED_REQUEST, kind, INLINE)))).not.toContain(
+        0.9,
+      );
+    }
+  });
+
+  it('shows the low example on a clue that is in neither synthetic fixture', () => {
+    // A worked example carrying a fixture's own answer would leak it into every
+    // prompt that fixture's run sends.
+    expect(system).toContain('Clue 5D: Charge');
+    expect(system).not.toContain('Former partner');
   });
 });
 
