@@ -1,0 +1,511 @@
+import type { RejectReason } from '../candidates/types.js';
+import { usdFor } from '../llm/pricing.js';
+import type { Stratum } from '../puzzle/types.js';
+
+/**
+ * T67. The pure half of the seed-only candidate recall screen: the record
+ * shape the runner (`scripts/eval-recall.ts`) writes per slot, the
+ * aggregation over it, the table and markdown renderers, and the pre-flight
+ * cost estimate. Nothing here reads the filesystem, the clock or the network,
+ * so every number below is a function of its inputs alone.
+ *
+ * The screen answers one question - "how often does this model's seed pass
+ * even offer the right answer?" - with the solver taken out of the loop
+ * entirely. Its metric definitions are the ones the escalation-policy
+ * decomposition uses (docs/benches/escalation-policy.md, "Decomposition of
+ * the drop"), and its per-slot fields are deliberately the same fields
+ * `RunRecord.perSlot` carries (docs/spec.md, "Metrics and run records"), so a
+ * recall screen and a real bench run can be read side by side.
+ */
+
+/** The usage blob of the calls that produced one slot's seed candidates. */
+export interface RecallTokens {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
+}
+
+export const RECALL_REJECT_REASONS: readonly RejectReason[] = [
+  'length',
+  'charset',
+  'pattern',
+  'clue-echo',
+  'duplicate',
+  'rejected-before',
+];
+
+export function zeroRecallRejectCounts(): Record<RejectReason, number> {
+  return {
+    length: 0,
+    charset: 0,
+    pattern: 0,
+    'clue-echo': 0,
+    duplicate: 0,
+    'rejected-before': 0,
+  };
+}
+
+/**
+ * One slot's seed pass. `truthInCandidates` / `truthRank` / `candidatesSeen`
+ * / `rejectCounts` are accumulated from exactly the events
+ * `src/eval/runRecorder.ts` accumulates them from, with the same rules, so
+ * the two agree by construction; `rawCandidates` (what the model offered
+ * before validation), `tokens`, `latencyMs` and the two USD figures come from
+ * the inference-log records for that slot, which is the only place a batched
+ * call's per-clue share of a call is available.
+ */
+export interface SlotRecallRecord {
+  slotId: string;
+  clue: string;
+  length: number;
+  truth: string;
+  /** The truth was among the accepted (validated, calibrated) candidates. */
+  truthInCandidates: boolean;
+  /** Its 0-based position in that accepted list, or null when absent. */
+  truthRank: number | null;
+  /** Accepted candidates, i.e. what the solver's domain would have been. */
+  candidatesSeen: number;
+  /** Answers the model offered, before validation dropped any. */
+  rawCandidates: number;
+  rejectCounts: Record<RejectReason, number>;
+  /** True when the slot's last attempt still failed to parse. */
+  parseFailure: boolean;
+  /** How many attempts for this slot the parser could not deliver. */
+  parseFailures: number;
+  /** The model's own `clue_understood`, or null when nothing came back. */
+  clueUnderstood: number | null;
+  /** Provider latency; 0 for a slot served entirely from the cache. */
+  latencyMs: number;
+  /** True when every call for this slot was a cache hit. */
+  cacheHit: boolean;
+  tokens: RecallTokens;
+  /** Priced as if cold (B2), which is the figure the screen decides on. */
+  usdCounterfactual: number;
+  /** What actually left the account: 0 for a slot served from the cache. */
+  usdBilled: number;
+}
+
+/** One (model, puzzle, repeat) cell of the screen. */
+export interface PuzzleRecallRecord {
+  model: string;
+  puzzleId: string;
+  stratum: Stratum;
+  /** 0-based, and the `sampleIndex` the seed requests carried (B1). */
+  repeat: number;
+  slots: SlotRecallRecord[];
+}
+
+/**
+ * One row of the screen's table. Every share is a fraction in [0,1] over the
+ * slots of the group, except `lengthErrorShare`, which is a share of
+ * rejections rather than of slots.
+ */
+export interface RecallGroupStats {
+  /** The model id, for a by-model row; `<model> / <stratum>` for a split row. */
+  group: string;
+  model: string;
+  /** null on the by-model rows. */
+  stratum: Stratum | null;
+  /** Distinct (puzzle, repeat) cells behind the row. */
+  puzzles: number;
+  slots: number;
+  truthInCandidatesShare: number;
+  /** Share of slots whose truth was the top accepted candidate. */
+  top1Share: number;
+  meanCandidatesSeen: number;
+  meanRawCandidates: number;
+  /** `length` rejections as a share of all rejections; 0 when nothing was rejected. */
+  lengthErrorShare: number;
+  parseFailureRate: number;
+  /** Share of slots left with an empty domain by the seed pass. */
+  zeroCandidateShare: number;
+  /**
+   * Mean latency over the slots that reached the provider. A cache hit waited
+   * on nobody, and folding its zero in would understate how slow the real
+   * calls were (docs/spec.md, `calls.avgLatencyMs`).
+   */
+  meanLatencyMs: number;
+  /** Mean `usdCounterfactual` per (puzzle, repeat) cell (B2). */
+  usdPerPuzzle: number;
+  /** Mean `usdBilled` per cell: 0 for a fully cached re-run. */
+  usdBilledPerPuzzle: number;
+}
+
+/** One model's line in the screen's ranking, in decision-rule order. */
+export interface RecallRankRow {
+  rank: number;
+  model: string;
+  /** The american-stratum share the rule ranks on, or null when that stratum is absent. */
+  americanTruthInCandidatesShare: number | null;
+  overallTruthInCandidatesShare: number;
+  usdPerPuzzle: number;
+  /** True for the models the rule says to carry into the puzzle-level bench. */
+  carry: boolean;
+}
+
+export interface RecallAggregation {
+  byModel: RecallGroupStats[];
+  /** The same rows split by stratum, in (model, stratum) order. */
+  byModelStratum: RecallGroupStats[];
+  ranking: RecallRankRow[];
+}
+
+/**
+ * How many models the screen's decision rule carries forward into the
+ * puzzle-level bench (docs/benches/README.md): the top three, plus the
+ * current tier-1 model, which the caller adds by name.
+ */
+export const RECALL_CARRY_COUNT = 3;
+
+function mean(values: readonly number[]): number {
+  if (values.length === 0) return 0;
+  let sum = 0;
+  for (const v of values) sum += v;
+  return sum / values.length;
+}
+
+function share(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : numerator / denominator;
+}
+
+interface Bucket {
+  model: string;
+  stratum: Stratum | null;
+  cells: Set<string>;
+  slots: SlotRecallRecord[];
+}
+
+function bucketKey(model: string, stratum: Stratum | null): string {
+  return stratum === null ? model : `${model} ${stratum}`;
+}
+
+function statsOf(bucket: Bucket): RecallGroupStats {
+  const slots = bucket.slots;
+  const n = slots.length;
+  let truthCount = 0;
+  let top1Count = 0;
+  let parseFailures = 0;
+  let zeroCandidates = 0;
+  let rejects = 0;
+  let lengthRejects = 0;
+  let usdCounterfactual = 0;
+  let usdBilled = 0;
+  const liveLatencies: number[] = [];
+  const candidatesSeen: number[] = [];
+  const rawCandidates: number[] = [];
+
+  for (const slot of slots) {
+    if (slot.truthInCandidates) truthCount += 1;
+    if (slot.truthRank === 0) top1Count += 1;
+    if (slot.parseFailure) parseFailures += 1;
+    if (slot.candidatesSeen === 0) zeroCandidates += 1;
+    for (const reason of RECALL_REJECT_REASONS) {
+      const count = slot.rejectCounts[reason];
+      rejects += count;
+      if (reason === 'length') lengthRejects += count;
+    }
+    usdCounterfactual += slot.usdCounterfactual;
+    usdBilled += slot.usdBilled;
+    if (!slot.cacheHit) liveLatencies.push(slot.latencyMs);
+    candidatesSeen.push(slot.candidatesSeen);
+    rawCandidates.push(slot.rawCandidates);
+  }
+
+  const cells = bucket.cells.size;
+  return {
+    group: bucket.stratum === null ? bucket.model : `${bucket.model} / ${bucket.stratum}`,
+    model: bucket.model,
+    stratum: bucket.stratum,
+    puzzles: cells,
+    slots: n,
+    truthInCandidatesShare: share(truthCount, n),
+    top1Share: share(top1Count, n),
+    meanCandidatesSeen: mean(candidatesSeen),
+    meanRawCandidates: mean(rawCandidates),
+    lengthErrorShare: share(lengthRejects, rejects),
+    parseFailureRate: share(parseFailures, n),
+    zeroCandidateShare: share(zeroCandidates, n),
+    meanLatencyMs: mean(liveLatencies),
+    usdPerPuzzle: share(usdCounterfactual, cells),
+    usdBilledPerPuzzle: share(usdBilled, cells),
+  };
+}
+
+/**
+ * The screen's decision rule, recorded in docs/benches/README.md: rank models
+ * by truth-in-candidates share on the american stratum, then by
+ * `usdCounterfactual` per puzzle. A model the set gave no american slots
+ * cannot be ranked by the rule, so it sorts after every model that can be, on
+ * its overall share; the rendered table says so rather than hiding it. The
+ * top `RECALL_CARRY_COUNT` are the ones to carry into the puzzle-level bench,
+ * alongside the current tier-1 model.
+ */
+function rankOf(
+  byModel: readonly RecallGroupStats[],
+  byModelStratum: readonly RecallGroupStats[],
+): RecallRankRow[] {
+  const american = new Map<string, number>();
+  for (const row of byModelStratum) {
+    if (row.stratum === 'american') american.set(row.model, row.truthInCandidatesShare);
+  }
+  const rows = byModel.map((row) => ({
+    model: row.model,
+    americanTruthInCandidatesShare: american.get(row.model) ?? null,
+    overallTruthInCandidatesShare: row.truthInCandidatesShare,
+    usdPerPuzzle: row.usdPerPuzzle,
+  }));
+  rows.sort((a, b) => {
+    const aHas = a.americanTruthInCandidatesShare !== null;
+    const bHas = b.americanTruthInCandidatesShare !== null;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    const aShare = a.americanTruthInCandidatesShare ?? a.overallTruthInCandidatesShare;
+    const bShare = b.americanTruthInCandidatesShare ?? b.overallTruthInCandidatesShare;
+    if (aShare !== bShare) return bShare - aShare;
+    if (a.usdPerPuzzle !== b.usdPerPuzzle) return a.usdPerPuzzle - b.usdPerPuzzle;
+    return a.model.localeCompare(b.model);
+  });
+  return rows.map((row, index) => ({
+    rank: index + 1,
+    model: row.model,
+    americanTruthInCandidatesShare: row.americanTruthInCandidatesShare,
+    overallTruthInCandidatesShare: row.overallTruthInCandidatesShare,
+    usdPerPuzzle: row.usdPerPuzzle,
+    carry: index < RECALL_CARRY_COUNT,
+  }));
+}
+
+/**
+ * Aggregates every (model, puzzle, repeat) cell into one row per model and
+ * one row per (model, stratum). Models keep the order they were first seen
+ * in - which is the order they were asked for on the command line - so the
+ * table is stable across runs; only `ranking` reorders them.
+ */
+export function aggregateRecall(
+  records: readonly PuzzleRecallRecord[],
+): RecallAggregation {
+  const byModelBuckets = new Map<string, Bucket>();
+  const byStratumBuckets = new Map<string, Bucket>();
+
+  const take = (
+    map: Map<string, Bucket>,
+    model: string,
+    stratum: Stratum | null,
+  ): Bucket => {
+    const key = bucketKey(model, stratum);
+    const existing = map.get(key);
+    if (existing !== undefined) return existing;
+    const created: Bucket = { model, stratum, cells: new Set<string>(), slots: [] };
+    map.set(key, created);
+    return created;
+  };
+
+  for (const record of records) {
+    const cell = `${record.puzzleId} ${String(record.repeat)}`;
+    for (const bucket of [
+      take(byModelBuckets, record.model, null),
+      take(byStratumBuckets, record.model, record.stratum),
+    ]) {
+      bucket.cells.add(cell);
+      bucket.slots.push(...record.slots);
+    }
+  }
+
+  const byModel = [...byModelBuckets.values()].map(statsOf);
+  const byModelStratum = [...byStratumBuckets.values()].map(statsOf);
+  return { byModel, byModelStratum, ranking: rankOf(byModel, byModelStratum) };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering. Tab-separated for the console (three of the column labels
+// contain spaces, so a delimiter that is never itself a header character
+// keeps the table unambiguous to parse), pipe tables for the markdown
+// summary - the same split `src/cli/bench.ts` and `xw report --md` use.
+// ---------------------------------------------------------------------------
+
+const RECALL_COLUMNS = [
+  'group',
+  'slots',
+  'truth-in-candidates',
+  'top-1',
+  'mean candidates',
+  'length-error share',
+  'parse-failure rate',
+  'zero-candidate share',
+  'mean latency ms',
+  'usd per puzzle',
+] as const;
+
+function cellsOf(row: RecallGroupStats): string[] {
+  return [
+    row.group,
+    String(row.slots),
+    row.truthInCandidatesShare.toFixed(4),
+    row.top1Share.toFixed(4),
+    row.meanCandidatesSeen.toFixed(2),
+    row.lengthErrorShare.toFixed(4),
+    row.parseFailureRate.toFixed(4),
+    row.zeroCandidateShare.toFixed(4),
+    row.meanLatencyMs.toFixed(0),
+    row.usdPerPuzzle.toFixed(6),
+  ];
+}
+
+/** The console table for one set of rows (by model, or split by stratum). */
+export function renderRecallTable(rows: readonly RecallGroupStats[]): string {
+  const lines = [RECALL_COLUMNS.join('\t')];
+  for (const row of rows) lines.push(cellsOf(row).join('\t'));
+  return lines.join('\n');
+}
+
+export interface RecallSummaryMeta {
+  setName: string;
+  models: readonly string[];
+  repeat: number;
+  /** ISO 8601; the caller's clock, so this module stays pure. */
+  generatedAt: string;
+  /** The tier-1 model of the profile the synthetic per-model profiles derive from. */
+  currentTier1: string;
+  offline: boolean;
+}
+
+function markdownTable(rows: readonly RecallGroupStats[]): string[] {
+  const lines = [
+    `| ${RECALL_COLUMNS.join(' | ')} |`,
+    `| ${RECALL_COLUMNS.map(() => '---').join(' | ')} |`,
+  ];
+  for (const row of rows) lines.push(`| ${cellsOf(row).join(' | ')} |`);
+  return lines;
+}
+
+/** `<out>/summary.md`: the two tables, the ranking, and what the ranking means. */
+export function renderRecallMarkdown(
+  aggregation: RecallAggregation,
+  meta: RecallSummaryMeta,
+): string {
+  const lines: string[] = [];
+  lines.push('# Seed-only candidate recall screen');
+  lines.push('');
+  lines.push(
+    `Set \`${meta.setName}\`, ${String(meta.models.length)} models, ` +
+      `\`--repeat ${String(meta.repeat)}\`${meta.offline ? ', offline (cache only)' : ''}. ` +
+      `Generated ${meta.generatedAt}.`,
+  );
+  lines.push('');
+  lines.push(
+    'Seed pass only: one tier-1 ask per slot with the empty pattern, no search, ' +
+      'no re-asks, no escalation and no assignment to a grid. Every model runs as ' +
+      `tier 1 of a synthetic profile derived from \`baseline\` (whose tier 1 is \`${meta.currentTier1}\`), ` +
+      'so the cache keys and the inference-log purpose are exactly what a real ' +
+      "solve's seed pass would use.",
+  );
+  lines.push('');
+  lines.push('## By model');
+  lines.push('');
+  lines.push(...markdownTable(aggregation.byModel));
+  lines.push('');
+  lines.push('## By model and stratum');
+  lines.push('');
+  lines.push(...markdownTable(aggregation.byModelStratum));
+  lines.push('');
+  lines.push('## Ranking');
+  lines.push('');
+  lines.push(
+    'Decision rule: rank by truth-in-candidates share on the american stratum, ' +
+      'then by usd per puzzle (counterfactual). Carry the top three plus the ' +
+      'current tier-1 model into the puzzle-level bench.',
+  );
+  lines.push('');
+  lines.push('| rank | model | american truth-in-candidates | overall | usd per puzzle | carry |');
+  lines.push('| --- | --- | --- | --- | --- | --- |');
+  for (const row of aggregation.ranking) {
+    const american =
+      row.americanTruthInCandidatesShare === null
+        ? 'n/a'
+        : row.americanTruthInCandidatesShare.toFixed(4);
+    lines.push(
+      `| ${String(row.rank)} | ${row.model} | ${american} | ` +
+        `${row.overallTruthInCandidatesShare.toFixed(4)} | ${row.usdPerPuzzle.toFixed(6)} | ` +
+        `${row.carry ? 'yes' : 'no'} |`,
+    );
+  }
+  lines.push('');
+  return `${lines.join('\n')}\n`;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-flight estimate (B45), mirroring `xw bench`: slots x models x repeats x
+// an assumed tokens-per-call, priced from the catalogue.
+// ---------------------------------------------------------------------------
+
+/**
+ * The tokens-per-call assumption behind the estimate, measured over the 34
+ * promptVersion-2 seed entries of the committed synthetic cache
+ * (`test/fixtures/cache`): mean 1292 prompt and 124 completion tokens per
+ * single-clue seed call, rounded up. The estimate exists to catch an
+ * order-of-magnitude mistake (a mistyped `--repeat`, a model priced 20x the
+ * tier-1 default), not to be an exact forecast.
+ */
+export const ASSUMED_SEED_PROMPT_TOKENS = 1300;
+export const ASSUMED_SEED_COMPLETION_TOKENS = 150;
+
+export interface RecallEstimateInput {
+  /** Total slots across every puzzle in the set. */
+  slots: number;
+  models: readonly string[];
+  repeat: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  /** Test-only catalogue override, forwarded to `usdFor`. */
+  pricingPath?: string;
+}
+
+export interface RecallModelEstimate {
+  model: string;
+  calls: number;
+  usd: number;
+}
+
+export interface RecallEstimate {
+  /** Calls per model: `slots x repeat`. */
+  callsPerModel: number;
+  perModel: RecallModelEstimate[];
+  totalUsd: number;
+}
+
+/**
+ * `slots x models x repeats x tokens-per-call x price`. One call per slot per
+ * repeat per model, since the screen never re-asks and never escalates; a
+ * batched profile would make fewer, larger calls for the same token count, so
+ * the per-call `request` price is the only term batching would change and it
+ * is zero for every model in the catalogue.
+ */
+export function estimateRecallUsd(input: RecallEstimateInput): RecallEstimate {
+  const promptTokens = input.promptTokens ?? ASSUMED_SEED_PROMPT_TOKENS;
+  const completionTokens = input.completionTokens ?? ASSUMED_SEED_COMPLETION_TOKENS;
+  const callsPerModel = input.slots * input.repeat;
+  const perModel = input.models.map((model) => ({
+    model,
+    calls: callsPerModel,
+    usd: usdFor({
+      model,
+      promptTokens: callsPerModel * promptTokens,
+      completionTokens: callsPerModel * completionTokens,
+      calls: callsPerModel,
+      ...(input.pricingPath === undefined ? {} : { path: input.pricingPath }),
+    }),
+  }));
+  const totalUsd = perModel.reduce((sum, row) => sum + row.usd, 0);
+  return { callsPerModel, perModel, totalUsd: Math.round(1e9 * totalUsd) / 1e9 };
+}
+
+/**
+ * A model id as a single safe path segment, for `<out>/<model-slug>/`. Model
+ * ids carry a `/` (and, for `nvidia/Nemotron-3_5-Lightning`, an underscore
+ * and dots), so anything outside the run-id charset `[A-Za-z0-9._-]` becomes
+ * `-`. Two different ids can only collide if they differ solely in those
+ * characters, which no catalogue entry does.
+ */
+export function modelSlug(model: string): string {
+  return model.replace(/[^A-Za-z0-9._-]+/g, '-');
+}

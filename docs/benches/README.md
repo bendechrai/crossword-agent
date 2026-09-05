@@ -49,3 +49,55 @@ xw report --by batchIndex --compare batch1,batch2,batch3,batch5,batch8 --md
 
 **Results:**
 (To be filled by a bench run)
+
+## Seed-only candidate recall screen
+
+A model screen, not a bench: it takes the solver out of the loop entirely and
+measures only whether a model's seed pass even offers the right answer. For
+every slot of every puzzle in the set it makes exactly one tier-1 ask with the
+empty pattern - no AC-3, no search, no re-ask, no escalation, no repair, and
+nothing is ever assigned to a grid - once per model. Each model runs as the
+tier-1 slot of a synthetic profile derived from `baseline`, so the router
+applies that model's own advertised capabilities (reasoning-off where the
+catalogue advertises `reasoning`, `response_format` where it advertises
+`structured_outputs`) and the B23 cache keys and inference-log `purpose` are
+byte for byte the ones a real solve's seed pass would use. A screen run
+therefore warms the cache a later bench run reads, and a re-run of the screen
+costs nothing.
+
+**Command** (`package.json` is frozen after T0, so the screen has no npm
+alias and runs directly under `tsx` inside the container):
+```
+docker exec -it crossword-solver npx tsx scripts/eval-recall.ts \
+  --set sets/modern-12.json --models a,b,c [--repeat 1] [--max-usd 10] [--out logs/recall]
+```
+
+It prints a pre-flight estimate (slots x models x repeats x an assumed
+tokens-per-call, priced from `models.json`) and refuses to start above
+`--max-usd` without `--yes`, exactly as `xw bench` does. Models run one after
+another so the process-wide per-model rate limiter is never shared between
+two models at once; puzzles inside a model run at concurrency 2, the same as
+bench. Per-slot results land in `<out>/<model-slug>/<puzzle>--r<repeat>.json`
+and the aggregate in `<out>/summary.md` and `<out>/summary.json`. `logs/` is
+gitignored: only aggregate numbers are ever committed, in this file.
+
+**Metrics (per model, and again split by stratum):** slots, truth-in-candidates
+share (the truth was among the accepted candidates), top-1 share (it was the
+top accepted candidate), mean candidates seen, length-error share of
+rejections, parse-failure rate, zero-candidate share (slots the seed pass left
+with an empty domain), mean latency over the calls that reached the provider,
+and USD per puzzle on `usdCounterfactual` (B2). The definitions are the ones
+the escalation-policy decomposition uses, so a screen row and the
+"Generation" paragraph of `docs/benches/escalation-policy.md` are directly
+comparable.
+
+**Decision rule (american stratum only):** rank models by truth-in-candidates
+share on the american stratum, then by USD per puzzle. Carry the top three,
+plus the current tier-1 model, into the puzzle-level bench. Report the cryptic
+stratum alongside but do not decide on it - it is the smaller half of every
+set and the hardest for generation, so it moves the ranking on noise. A model
+the set gave no american slots cannot be ranked by this rule and sorts after
+every model that can be.
+
+**Results:**
+(To be filled by a screen run)
