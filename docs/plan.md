@@ -1622,6 +1622,18 @@ Starts once every Wave 3 task is merged.
 - Acceptance: 1. tierRouter tests: constrained purposes get reasoning_effort medium and max_tokens 2048 under the new group, seed stays none/512; a non-reasoning model gets neither; the gpt-oss override still maps as before. 2. Service tests with a stub transport: constrainedSamples 3 issues three requests with sampleIndex 0..2 and distinct cache keys, merges votes deterministically with the stated scoring, and a cold call plus two cache hits still count correctly in usage events; constrainedSamples 1 issues exactly one request as today. 3. Cache-key test: effort and max tokens change the key for constrained requests only. 4. builtins tests: max-accuracy and strong-only-uncapped parse and carry the stated values; every other built-in unchanged (deep-equal against the previous literals, snapshotted in the test). 5. Offline integration tests pass without snapshot changes. 6. preflight passes. 7. Spec updated.
 - Out of scope: running any bench; seed-pass sampling; calibration fitting; teaching `src/profiles/loader.ts` the two new profile-file keys (that file is owned elsewhere, so the fields are settable from a built-in or a CLI override but not yet from a profile file).
 
+### T72: Run-record schema and profile-file loader accept the T71 profile fields
+- Workstream: I
+- Model: sonnet
+- Depends on: T71
+- Owns: test/unit/profiles/loader.test.ts (additions); pre-authorised edits as above
+- Reads (must not edit): src/profiles/schema.ts (the `reasoning` group: constrainedEffort, constrainedMaxTokens; and `constrainedSamples`), src/profiles/builtins.ts (max-accuracy, strong-only-uncapped), src/eval/runRecorder.ts
+- Spec sections: Strategy profiles; Metrics and run records
+- Deliverable: T71 added `reasoning: { constrainedEffort, constrainedMaxTokens }` and `constrainedSamples` to ProfileSchema, but schemas/run-record.schema.json's profile object has additionalProperties false without them, so a run record written under max-accuracy or strong-only-uncapped does not validate against the published schema, and src/profiles/loader.ts's profile-file key whitelist and nested-group allow-lists do not know them, so a profile file setting them is rejected as an unknown key. Fix both: add the two fields (with the same types, enums and ranges as ProfileSchema) to the run-record schema's profile object, and add them to the loader's whitelists (top-level `constrainedSamples` and `reasoning`; nested `reasoning.constrainedEffort` and `reasoning.constrainedMaxTokens`). Add a contract test that a run record whose profile is the max-accuracy built-in validates, and loader tests that a profile file with `{ "extends": "strong-only", "reasoning": { "constrainedEffort": "medium" }, "constrainedSamples": 3 }` resolves and that a typo `reasoning.constrainedEfort` is still rejected naming the key.
+- Decisions baked in: schema and loader mirror ProfileSchema exactly; no behaviour change elsewhere.
+- Acceptance: 1. The new contract test validates a max-accuracy run record against the schema. 2. Loader tests pass for the new fields and the typo rejection. 3. preflight passes.
+- Out of scope: any src change beyond the loader whitelists; benches.
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1700,8 +1712,9 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T69 | Make DeepSeek-V4-Flash the default tier-1 model; refresh fixtures | 6 | E | sonnet | T65,T66,T67 | profiles schema default and builtins, tests, fixture cache and snapshots, model-selection doc, spec decision row |
 | T70 | Hygiene after the tier-1 swap | 6 | J | haiku | T69 | spec tier-routing sentence, model-selection next-step, fixtures-refresh warning, models.min.json, cache prune |
 | T71 | max-accuracy profile: lifted caps, reasoning on constrained calls, voting | 6 | E | opus | T62,T65,T69 | profiles schema and builtins, tierRouter, candidates/service, tests, spec sentences |
+| T72 | Run-record schema and profile-file loader accept the T71 fields | 6 | I | sonnet | T71 | schemas/run-record.schema.json, src/profiles/loader.ts, tests |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 13. Total 72, of which 70 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 14. Total 73, of which 71 are in v1 (M1-M5).
 
 Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 44.
 
