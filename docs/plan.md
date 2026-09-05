@@ -1550,6 +1550,18 @@ Starts once every Wave 3 task is merged.
 - Acceptance: 1. prompts tests: v3 templates contain the exact-length restatement and the clue_understood scale and do not contain the self-check sentence or per-candidate counts; v2 templates unchanged from their goldens. 2. A unit test shows the candidate service renders v2 when profile.promptVersion is "2" and v3 for "3", with distinct cache keys. 3. builtins tests: default "3" everywhere except baseline-pv2 ("2"); ProfileSchema parses all. 4. Fixtures refreshed, strict replay, 1.0/1.0 on both synthetic fixtures, three-run proof. 5. preflight passes. 6. docs/spec.md names promptVersion 3 and mentions baseline-pv2.
 - Out of scope: bench runs; T62 policy changes.
 
+### T66: Revert default promptVersion to 2; keep 3 selectable
+- Workstream: E (prompting)
+- Model: sonnet
+- Depends on: T65
+- Owns: src/profiles/builtins.ts, test/unit/profiles/builtins.test.ts, test/fixtures/runs/** (regenerate)
+- Reads (must not edit): src/llm/prompts.ts, docs/benches/escalation-policy.md (top section, the v3 versus v2 measurement)
+- Spec sections: Strategy profiles; Testing
+- Deliverable: A follow-up paired measurement (72 runs, three repeats each) found promptVersion 2 beats promptVersion 3 on every accuracy metric, with confidence intervals excluding zero (american-stratum letters 0.5786 vs 0.5207): T65's self-prune removal did not pay for itself. Revert the default: `ProfileSchema`'s `promptVersion` default becomes `"2"` and every built-in carries `"2"`, except a renamed experiment profile - remove `baseline-pv2` and add `baseline-pv3` (`baseline` with `promptVersion` `"3"`, otherwise identical) so version 3 stays selectable for future work. `src/llm/prompts.ts` is untouched: both templates stay, and its `PROMPT_VERSION`/`PAIRED_PROMPT_VERSION` constants keep their current values (`"3"` and `"2"`) - `builtins.ts` gets the flip by wiring every ordinary built-in to `PAIRED_PROMPT_VERSION` and the renamed experiment profile to `PROMPT_VERSION`, and `schema.ts`'s default (the one line T65 authorised there) follows the same swap. Update the builtins and schema tests that pin the default and the experiment profile's name, plus the one `prompts.test.ts` assertion that names them (leave the rest of that file, including its other `baseline-pv2` mentions in prose and in the T65 service-rendering test, untouched except where the rename itself would otherwise leave a dangling lookup). Regenerate the synthetic snapshots and bounds OFFLINE (`FIXTURES_REFRESH_OFFLINE_ONLY=1`, `--network none`) against the already-committed promptVersion-2 cache entries (127, verified strict by T65 under `baseline-pv2`); both fixtures must replay strict at 1.0/1.0, and three fresh offline replays must produce byte-identical accuracy and per-slot answers. Update docs/spec.md's Testing paragraph to name promptVersion 2 as the default and `baseline-pv3` as the experiment profile, with one sentence recording that version 3 was measured and rejected (pointer to docs/benches/escalation-policy.md).
+- Decisions baked in: default `"2"`; version 3 retained as a template and via `baseline-pv3`; no cache changes; no prompt text changes; `src/llm/prompts.ts` itself is not edited - the constants keep their values and `builtins.ts`/`schema.ts` choose which constant each profile uses.
+- Acceptance: 1. `ProfileSchema.parse({name:'x'}).promptVersion === '2'`; every built-in except `baseline-pv3` carries `'2'`; `baseline-pv3` equals `baseline` apart from `promptVersion` `'3'`. 2. The prompts test for the default version is updated and passing. 3. Snapshots and bounds regenerated offline; integration tests strict at 1.0/1.0 for both fixtures; three-run proof. 4. preflight passes. 5. docs/spec.md names promptVersion 2 as the default and `baseline-pv3` as the experiment profile.
+- Out of scope: prompt text; cache; bench runs.
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1622,10 +1634,11 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T63 | Seed prompt: length discipline and unanchored clue_understood (promptVersion 2) | 6 | E | opus | T31,T49,T58 | llm/prompts.ts, prompt tests and goldens, fixture cache refresh |
 | T64 | modern-12 bench set with fetch recipe; modern-source documentation | 6 | J | sonnet | T57,T60 | sets/modern-12.json, docs/benches/SETS.md, sets contract test, docs/crossword-sources.md, docs/benches/README.md, README.md |
 | T65 | promptVersion 3: drop the length self-prune; v2 selectable | 6 | E | opus | T63 | llm/prompts.ts, profiles (promptVersion field, baseline-pv2 built-in), tests, fixture refresh |
+| T66 | Revert default promptVersion to 2; keep 3 selectable | 6 | E | sonnet | T65 | profiles schema default, builtins, tests, fixture regeneration, spec sentence |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 7. Total 66, of which 64 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 8. Total 67, of which 65 are in v1 (M1-M5).
 
-Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 42.
+Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 43.
 
 Network-touching tasks: **T49** and **T50** only. Every other task must pass with `globalThis.fetch` stubbed to throw.
 
