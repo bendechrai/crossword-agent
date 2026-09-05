@@ -65,6 +65,12 @@ A crossword solver issues many short requests - one or a few per clue, plus re-t
 
 Every clue is routed first to `nvidia/Nemotron-3_5-Lightning` (output $0.24 per 1M tokens) with its high rate limits (400,000 TPM, 600 RPM). If that model fails - defined as returning no answer, an answer of the wrong length, or an answer conflicting with letters fixed by crossing entries - the clue escalates to `deepseek-ai/DeepSeek-V4-Pro` (output $3.50 per 1M tokens, structured output support, 1,000,000 TPM, 3,000 RPM). This two-tier approach leverages the cheap model's high throughput to solve the bulk of clues, while paying for the expensive model only on the hard tail. The other four shortlisted models remain documented as fallbacks and benchmark comparators.
 
+### Decision revised (2026-09-05)
+
+The benchmark this document's "Next step" called for has now been run, in two stages, against the actual solver rather than against price and rate-limit numbers alone. The seed-only candidate recall screen (docs/benches/recall-screen.md) measured every shortlisted and several additional models' raw candidate-generation quality with the solver's search, escalation and repair passes switched off, and flagged `deepseek-ai/DeepSeek-V4-Flash-0731` as by far the most cost-efficient model screened. The puzzle-level bench that followed (docs/benches/model-comparison.md) ran it as tier 1 inside the real solver end to end and confirmed the result: 0.80 letters accuracy on the american stratum against the prior default's 0.58, winning 24 of 24 paired repeats, at about half the per-puzzle cost.
+
+**New pair:** tier 1 is now `deepseek-ai/DeepSeek-V4-Flash-0731` (output $0.28 per 1M tokens, structured output support, 1,000,000 TPM, 3,000 RPM); tier 2 is unchanged, `deepseek-ai/DeepSeek-V4-Pro`. `nvidia/Nemotron-3_5-Lightning` remains available by naming it explicitly as `tier1` in a profile file, but no longer routes any clue by default. See docs/benches/recall-screen.md and docs/benches/model-comparison.md for the measurements, and docs/spec.md's Decisions log for the corresponding entry.
+
 ## Next step
 
 The benchmark across all six shortlisted models remains worth running to validate the escalation strategy, measuring accuracy and cost per solved clue.
