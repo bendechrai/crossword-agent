@@ -14,6 +14,7 @@ import { getLimiter } from '../../../src/llm/rateLimiter.js';
 import {
   REASONING_OFF_PARAM,
   REASONING_OFF_VALUE,
+  reasoningEffortFor,
   reasoningOffValueFor,
   route,
 } from '../../../src/llm/tierRouter.js';
@@ -321,6 +322,142 @@ describe('route: rate limiter creation on first touch', () => {
     route(baseRequest({ tier: 1 }), profile);
 
     expect(getLimiter).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('route: reasoning on constrained calls (T71)', () => {
+  const REASONING_PROFILE: Partial<Profile> = {
+    tier1: 'catalogue/reasoning-model',
+    tier2: 'catalogue/reasoning-model-2',
+    reasoning: { constrainedEffort: 'medium', constrainedMaxTokens: 2048 },
+  };
+
+  /** reask and repair render `constrained`; escalate renders `escalate`. */
+  const CONSTRAINED_PURPOSES = ['reask', 'repair', 'escalate'] as const;
+
+  it.each(CONSTRAINED_PURPOSES)(
+    'sends reasoning_effort medium and max_tokens 2048 for a %s call',
+    (purpose) => {
+      vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+      const profile = baseProfile(REASONING_PROFILE);
+
+      const result = route(baseRequest({ tier: 1, purpose }), profile);
+
+      expect(result.request.extra).toEqual(
+        expect.objectContaining({ [REASONING_OFF_PARAM]: 'medium' }),
+      );
+      expect(result.request.maxTokens).toBe(2048);
+      expect(result.constrainedReasoningEffort).toBe('medium');
+    },
+  );
+
+  it('leaves a seed call at the reasoning-off value and sampling.maxTokens', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+    const profile = baseProfile(REASONING_PROFILE);
+
+    const result = route(baseRequest({ tier: 1, purpose: 'seed' }), profile);
+
+    expect(result.request.extra).toEqual(
+      expect.objectContaining({ [REASONING_OFF_PARAM]: REASONING_OFF_VALUE }),
+    );
+    expect(result.request.maxTokens).toBe(512);
+    expect(result.constrainedReasoningEffort).toBeNull();
+  });
+
+  it('reaches a tier-2 constrained call too, which otherwise carries no parameter at all', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+    const profile = baseProfile(REASONING_PROFILE);
+
+    const result = route(baseRequest({ tier: 2, purpose: 'escalate' }), profile);
+
+    expect(result.request.extra).toEqual(
+      expect.objectContaining({ [REASONING_OFF_PARAM]: 'medium' }),
+    );
+    expect(result.request.maxTokens).toBe(2048);
+  });
+
+  it('gives a non-reasoning model neither the parameter nor the raised token budget', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: false }));
+    const profile = baseProfile(REASONING_PROFILE);
+
+    const result = route(baseRequest({ tier: 1, purpose: 'reask' }), profile);
+
+    expect(result.request.extra).toBeUndefined();
+    expect(result.request.maxTokens).toBe(512);
+    expect(result.constrainedReasoningEffort).toBeNull();
+  });
+
+  it('changes nothing for a profile that does not set the group (the default)', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+    const profile = baseProfile({ tier1: 'catalogue/reasoning-model' });
+    expect(profile.reasoning).toBeUndefined();
+
+    for (const purpose of [...CONSTRAINED_PURPOSES, 'seed'] as const) {
+      const result = route(baseRequest({ tier: 1, purpose }), profile);
+      expect(result.request.extra).toEqual(
+        expect.objectContaining({ [REASONING_OFF_PARAM]: REASONING_OFF_VALUE }),
+      );
+      expect(result.request.maxTokens).toBe(512);
+      expect(result.constrainedReasoningEffort).toBeNull();
+    }
+  });
+
+  it('honours constrainedEffort "none" as off, whatever constrainedMaxTokens says', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+    const profile = baseProfile({
+      tier1: 'catalogue/reasoning-model',
+      reasoning: { constrainedEffort: 'none', constrainedMaxTokens: 4096 },
+    });
+
+    const result = route(baseRequest({ tier: 1, purpose: 'reask' }), profile);
+
+    expect(result.request.extra).toEqual(
+      expect.objectContaining({ [REASONING_OFF_PARAM]: REASONING_OFF_VALUE }),
+    );
+    expect(result.request.maxTokens).toBe(512);
+  });
+
+  it('sends each requested effort verbatim', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+    for (const effort of ['low', 'medium', 'high'] as const) {
+      const profile = baseProfile({
+        tier1: 'catalogue/reasoning-model',
+        reasoning: { constrainedEffort: effort, constrainedMaxTokens: 2048 },
+      });
+      const result = route(baseRequest({ tier: 1, purpose: 'reask' }), profile);
+      expect(result.request.extra?.[REASONING_OFF_PARAM]).toBe(effort);
+    }
+  });
+
+  describe('reasoningEffortFor: the T68 override table still applies to "none" only', () => {
+    it('maps "none" through the override table, as before', () => {
+      expect(reasoningEffortFor('openai/gpt-oss-120b', 'none')).toBe('low');
+      expect(reasoningEffortFor('catalogue/some-other-model', 'none')).toBe(REASONING_OFF_VALUE);
+      expect(reasoningEffortFor('openai/gpt-oss-120b', 'none')).toBe(
+        reasoningOffValueFor('openai/gpt-oss-120b'),
+      );
+    });
+
+    it('passes a real effort straight through, including for a Harmony model', () => {
+      expect(reasoningEffortFor('openai/gpt-oss-120b', 'medium')).toBe('medium');
+      expect(reasoningEffortFor('openai/gpt-oss-120b', 'high')).toBe('high');
+      expect(reasoningEffortFor('catalogue/some-other-model', 'low')).toBe('low');
+    });
+
+    it('route sends the requested effort for the Harmony model on a constrained call', () => {
+      vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+      const profile = baseProfile({
+        tier1: 'openai/gpt-oss-120b',
+        reasoning: { constrainedEffort: 'medium', constrainedMaxTokens: 2048 },
+      });
+
+      const constrained = route(baseRequest({ tier: 1, purpose: 'reask' }), profile);
+      const seed = route(baseRequest({ tier: 1, purpose: 'seed' }), profile);
+
+      expect(constrained.request.extra?.[REASONING_OFF_PARAM]).toBe('medium');
+      // The seed call still gets T68's substituted off value.
+      expect(seed.request.extra?.[REASONING_OFF_PARAM]).toBe('low');
+    });
   });
 });
 

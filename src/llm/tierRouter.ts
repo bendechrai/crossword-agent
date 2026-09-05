@@ -2,10 +2,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { CandidateRequest } from '../candidates/types.js';
-import type { Profile } from '../profiles/schema.js';
+import { reasoningOf, type Profile, type ReasoningEffort } from '../profiles/schema.js';
 import { repoRoot } from '../util/fs.js';
 import { log } from '../util/log.js';
 import { capabilitiesOf } from './pricing.js';
+import { promptKindFor } from './prompts.js';
 import { getLimiter } from './rateLimiter.js';
 import type { LlmRequest } from './types.js';
 
@@ -56,11 +57,50 @@ export function reasoningOffValueFor(model: string): string {
   return REASONING_OFF_VALUE_OVERRIDES[model] ?? REASONING_OFF_VALUE;
 }
 
+/**
+ * The `reasoning_effort` value to send for `model` when the profile asks for
+ * `requested` (T71).
+ *
+ * `'none'` means "reasoning off", so it goes through
+ * `reasoningOffValueFor`'s per-model override table - that table exists
+ * precisely because `"none"` is the value some providers reject. Every other
+ * value is passed through unchanged: `low`, `medium` and `high` are the three
+ * levels OpenAI's Harmony format defines and are accepted by every
+ * reasoning-capable model in the catalogue, so an override would only be
+ * substituting one valid request for another.
+ */
+export function reasoningEffortFor(model: string, requested: ReasoningEffort): string {
+  return requested === 'none' ? reasoningOffValueFor(model) : requested;
+}
+
+/**
+ * Whether `req` renders the constrained or escalate template - a re-ask, a
+ * repair ask or an escalation - rather than the seed template. Derived from
+ * `promptKindFor` rather than from a second list of purposes, so the router
+ * and `llm/prompts.ts` can never disagree about what a "constrained call" is.
+ */
+function isConstrainedCall(req: CandidateRequest): boolean {
+  return promptKindFor(req.purpose) !== 'seed';
+}
+
 export interface RoutedRequest {
   request: LlmRequest;
   model: string;
   /** True when the schema has to go in the prompt instead of `response_format`. */
   inlineSchema: boolean;
+  /**
+   * The reasoning effort this request asks the model to spend, when the
+   * profile's `reasoning.constrainedEffort` engaged for it (T71), and `null`
+   * on every other call - including a call carrying the reasoning-*off*
+   * value, which is what the router has always sent and so is not a new
+   * cache-key input.
+   *
+   * `candidates/service.ts` folds a non-null value into the B23 cache key:
+   * two efforts are two different answers to the same question, and
+   * `max_tokens` (already a key field) does not separate them on its own,
+   * since `reasoning.constrainedMaxTokens` is one number for every effort.
+   */
+  constrainedReasoningEffort: string | null;
 }
 
 export interface RouteOptions {
@@ -183,8 +223,25 @@ export function route(req: CandidateRequest, profile: Profile, opts: RouteOption
     topP = undefined;
   }
 
+  // T71: a constrained call (re-ask, repair, escalate) under a profile that
+  // asks for reasoning on those calls is the one case where the parameter
+  // carries a real effort rather than the off value, and the one case where
+  // the token budget moves: `sampling.maxTokens` is sized for a seed ask's
+  // JSON, and a model that thinks needs room for both. Gated on the model
+  // advertising `reasoning` like every other use of the parameter (B9), so a
+  // non-reasoning model gets neither the parameter nor the raised budget.
+  const reasoning = reasoningOf(profile);
+  const constrainedReasoning =
+    capabilities.supportsReasoning &&
+    reasoning.constrainedEffort !== 'none' &&
+    isConstrainedCall(req)
+      ? reasoningEffortFor(model, reasoning.constrainedEffort)
+      : null;
+
   const extra: Record<string, unknown> = {};
-  if (capabilities.supportsReasoning && reasoningOffApplies(req)) {
+  if (constrainedReasoning !== null) {
+    extra[REASONING_OFF_PARAM] = constrainedReasoning;
+  } else if (capabilities.supportsReasoning && reasoningOffApplies(req)) {
     extra[REASONING_OFF_PARAM] = reasoningOffValueFor(model);
   }
   // B38: `--seed` reaches the provider only when the catalogue advertises it.
@@ -202,11 +259,12 @@ export function route(req: CandidateRequest, profile: Profile, opts: RouteOption
     // request reaches the transport.
     messages: [],
     temperature: profile.sampling.temperature,
-    maxTokens: profile.sampling.maxTokens,
+    maxTokens:
+      constrainedReasoning === null ? profile.sampling.maxTokens : reasoning.constrainedMaxTokens,
     ...(topP !== undefined ? { topP } : {}),
     ...(inlineSchema ? {} : { responseFormat: candidateResponseFormat() }),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
 
-  return { request, model, inlineSchema };
+  return { request, model, inlineSchema, constrainedReasoningEffort: constrainedReasoning };
 }
