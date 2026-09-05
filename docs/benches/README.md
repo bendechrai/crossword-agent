@@ -101,3 +101,34 @@ every model that can be.
 
 **Results:**
 See `docs/benches/recall-screen.md` (screen run 2026-09-05, `sets/modern-12.json`, nine models screened including openai/gpt-oss-120b after the T68 router fix). On the american stratum the top three by truth-in-candidates share remain deepseek-ai/DeepSeek-V4-Pro, zai-org/GLM-5.1 and deepseek-ai/DeepSeek-V4-Flash-0731; openai/gpt-oss-120b ranks 4th of 9. The current tier-1, nvidia/Nemotron-3_5-Lightning, ranks 8th of 9 and carries anyway per the rule above; nvidia/Nemotron-3-Nano-Omni produced no completed calls (see the linked document for detail).
+
+## Model comparison
+
+A puzzle-level bench (not a seed-only screen): takes the two most
+cost-efficient candidates from the recall screen above,
+deepseek-ai/DeepSeek-V4-Flash-0731 and meta-llama/Llama-3.3-70B-Instruct, and
+runs each as the tier-1 model inside the real solver (full seed pass,
+re-asks, escalation, search and repair) on `sets/modern-12.json` at
+promptVersion 2, three repeats each. Brackets both against the built-in
+`strong-only` (deepseek-ai/DeepSeek-V4-Pro for both tiers, ceiling) and
+`tier1-only` (current tier-1, no escalation, floor) profiles, one repeat
+each, and against the current default's own promptVersion-2 measurement
+(the 36 `baseline-pv2` records reused from `docs/benches/escalation-policy.md`,
+not re-run).
+
+**Decision rule (american stratum only):** choose the tier-1 model with the
+best letters accuracy whose counterfactual cost per correct word is not more
+than 1.5x the cheapest candidate's.
+
+**Results:**
+See `docs/benches/model-comparison.md` (bench run 2026-09-05, commit
+`4f7298652bfcef4eebfadfe26a7f237454ad8f3f`, $4.256729 counterfactual spend
+against a $15 authorization). deepseek-ai/DeepSeek-V4-Flash-0731 wins the
+decision rule outright: on the american stratum it has both the best letters
+accuracy of the three candidates (0.8001, versus the current default's
+0.5786) and the lowest cost per correct word, a paired difference against the
+current default that clears the noise floor by a wide margin (95% CI 0.1569
+to 0.2861, t(7) = 8.111). It closes about 75% of the letters-accuracy gap
+between the tier1-only floor and the strong-only ceiling at about 14% of the
+ceiling's per-puzzle cost. Recommendation: swap the tier-1 default to
+deepseek-ai/DeepSeek-V4-Flash-0731.
