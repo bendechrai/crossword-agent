@@ -8,8 +8,10 @@ import type { EmittedEvent } from '../../../src/events/types.js';
 import { createNebiusTransport } from '../../../src/llm/client.js';
 import { openInferenceLog } from '../../../src/llm/inferenceLog.js';
 import { getLimiter, resetRegistryForTests } from '../../../src/llm/rateLimiter.js';
+import { REASONING_OFF_PARAM } from '../../../src/llm/tierRouter.js';
 import type { InferenceLog, InferenceLogRecord, LlmRequest } from '../../../src/llm/types.js';
 import { ExitCode, isCliError } from '../../../src/cli/exit.js';
+import { log as coreLog } from '../../../src/util/log.js';
 import { startStubHttpServer, type StubHttpServer } from '../../helpers/stubHttpServer.js';
 
 // A real catalogue entry (test/unit/llm/pricing.test.ts uses the same one) so
@@ -230,6 +232,122 @@ describe('createNebiusTransport: 5xx', () => {
     expect(result.httpStatus).toBe(200);
     expect(observeSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 500 }));
     expect(limiter.snapshot().rps).toBe(before);
+  });
+});
+
+describe('createNebiusTransport: 400 reasoning_effort fallback (T68)', () => {
+  it('retries exactly once with "low" and succeeds when a 400 body names reasoning_effort', async () => {
+    server = await startStubHttpServer([
+      {
+        status: 400,
+        body: { error: { message: "Harmony does not support reasoning_effort='none'" } },
+      },
+      { status: 200, body: successBody() },
+    ]);
+    const log_ = fakeLog();
+    const warnSpy = vi.spyOn(coreLog, 'warn').mockImplementation(() => undefined);
+    const transport = createNebiusTransport({
+      apiKey: FAKE_API_KEY,
+      baseUrl: server.url,
+      inferenceLog: log_,
+    });
+
+    const result = await transport.complete(
+      makeRequest({ extra: { [REASONING_OFF_PARAM]: 'none' } }),
+    );
+
+    expect(result.httpStatus).toBe(200);
+    expect(server.requests).toHaveLength(2);
+    expect(server.requests[0]?.body).toMatchObject({ [REASONING_OFF_PARAM]: 'none' });
+    expect(server.requests[1]?.body).toMatchObject({ [REASONING_OFF_PARAM]: 'low' });
+
+    // Both attempts are logged, the retry substituting the value.
+    expect(log_.records).toHaveLength(2);
+    expect(log_.records[0]?.httpStatus).toBe(400);
+    expect(log_.records[0]?.attempt).toBe(0);
+    expect(log_.records[1]?.httpStatus).toBe(200);
+    expect(log_.records[1]?.attempt).toBe(1);
+    expect(log_.records[1]?.request?.extra).toMatchObject({ [REASONING_OFF_PARAM]: 'low' });
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(MODEL));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(REASONING_OFF_PARAM));
+  });
+
+  it('surfaces the provider error as before when the retry also fails', async () => {
+    server = await startStubHttpServer([
+      {
+        status: 400,
+        body: { error: { message: "Harmony does not support reasoning_effort='none'" } },
+      },
+      { status: 400, body: { error: { message: 'still bad' } } },
+    ]);
+    const log_ = fakeLog();
+    vi.spyOn(coreLog, 'warn').mockImplementation(() => undefined);
+    const transport = createNebiusTransport({
+      apiKey: FAKE_API_KEY,
+      baseUrl: server.url,
+      inferenceLog: log_,
+    });
+
+    let caught: unknown;
+    try {
+      await transport.complete(makeRequest({ extra: { [REASONING_OFF_PARAM]: 'none' } }));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isCliError(caught)).toBe(true);
+    expect((caught as { code: ExitCode }).code).toBe(ExitCode.PROVIDER);
+    expect((caught as Error).message).toContain('still bad');
+    expect(server.requests).toHaveLength(2);
+    expect(log_.records).toHaveLength(2);
+  });
+
+  it('does not retry a 400 whose body does not mention reasoning_effort', async () => {
+    server = await startStubHttpServer([
+      { status: 400, body: { error: { message: 'invalid request: bad model id' } } },
+    ]);
+    const log_ = fakeLog();
+    const transport = createNebiusTransport({
+      apiKey: FAKE_API_KEY,
+      baseUrl: server.url,
+      inferenceLog: log_,
+    });
+
+    let caught: unknown;
+    try {
+      await transport.complete(makeRequest({ extra: { [REASONING_OFF_PARAM]: 'none' } }));
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isCliError(caught)).toBe(true);
+    expect((caught as Error).message).toContain('bad model id');
+    expect(server.requests).toHaveLength(1);
+    expect(log_.records).toHaveLength(1);
+  });
+
+  it('does not retry a 400-with-reasoning_effort-text request that never sent the param', async () => {
+    server = await startStubHttpServer([
+      { status: 400, body: { error: { message: 'reasoning_effort is not supported here' } } },
+    ]);
+    const log_ = fakeLog();
+    const transport = createNebiusTransport({
+      apiKey: FAKE_API_KEY,
+      baseUrl: server.url,
+      inferenceLog: log_,
+    });
+
+    let caught: unknown;
+    try {
+      await transport.complete(makeRequest());
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isCliError(caught)).toBe(true);
+    expect(server.requests).toHaveLength(1);
+    expect(log_.records).toHaveLength(1);
   });
 });
 
