@@ -382,6 +382,24 @@ describe('builtins', () => {
     expect(builtinNames().sort()).toEqual([...EXPECTED_NAMES].sort());
   });
 
+  // T65 pinned the built-in count in test/unit/llm/prompts.test.ts, so that its
+  // promptVersion loop could not quietly pass over an empty set. T71 added two
+  // built-ins, and re-pinning a count in a T65-owned file for every profile a
+  // later task adds is the wrong home for it: the pin belongs beside the name
+  // list it restates, which is here. So this test carries both halves of what
+  // that one asserted - the count, and the version every entry must be on.
+  it('getBuiltins() returns fifteen profiles, each on a version prompts.ts renders', () => {
+    const profiles = Object.values(getBuiltins());
+    expect(profiles).toHaveLength(15);
+    expect(profiles).toHaveLength(EXPECTED_NAMES.length);
+    for (const profile of profiles) {
+      expect(profile.promptVersion, `${profile.name} promptVersion`).toBe(
+        profile.name === 'baseline-pv3' ? PROMPT_VERSION : PAIRED_PROMPT_VERSION,
+      );
+    }
+    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PAIRED_PROMPT_VERSION);
+  });
+
   it('getBuiltins() returns the same set, keyed by name', () => {
     const all = getBuiltins();
     expect(Object.keys(all).sort()).toEqual([...EXPECTED_NAMES].sort());
