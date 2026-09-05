@@ -1,4 +1,372 @@
-# Prompt version 3 versus 2: paired measurement on modern-12 (2026-09-05)
+# Canonical result on modern-12 with the Flash pair (2026-09-05, three repeats)
+
+Date: 2026-09-05
+Commit: 53417b192c3b3d7baea2301b224473e08259a4db (main)
+
+## Environment
+
+- Commit `53417b192c3b3d7baea2301b224473e08259a4db` (main), which includes
+  T69 (swap the tier-1 default to `deepseek-ai/DeepSeek-V4-Flash-0731` per
+  the puzzle-level model comparison, docs/benches/model-comparison.md) -
+  confirmed in-container:
+  `docker exec crossword-solver sh -c 'grep -n "DeepSeek-V4-Flash" src/profiles/schema.ts | head -2'`
+  prints the `tier1: z.string().default('deepseek-ai/DeepSeek-V4-Flash-0731')`
+  line.
+- Model pair: tier 1 `deepseek-ai/DeepSeek-V4-Flash-0731`, tier 2
+  `deepseek-ai/DeepSeek-V4-Pro` (the tier-2 model is unchanged from every
+  earlier result in this document). Confirmed from every run record's
+  `models` field, and from `profile.promptVersion`, all 108 of which read
+  `"2"` - all three built-in profiles (`baseline`, `eager-escalation`,
+  `patient`) carry `promptVersion: PAIRED_PROMPT_VERSION` explicitly
+  (`src/profiles/builtins.ts`), independent of the module-level
+  `PROMPT_VERSION` default (which is `"3"` after T65/T66; only the
+  `baseline-pv3` built-in uses it).
+- Word list loaded: `data/wordlist/collaborative.txt`, 567,657 lines,
+  confirmed present in the container before the run
+  (`docker exec crossword-solver sh -c 'wc -l /app/data/wordlist/collaborative.txt'`).
+- Candidate cache: warm for tier 1 and mostly warm for tier 2 going into
+  this run. The model comparison bench (docs/benches/model-comparison.md,
+  same day, same set, same tier-1/tier-2 models, same promptVersion 2) had
+  already primed the cache for the `flash-tier1` arm on all 12 puzzles.
+  `baseline` (identical model pair, escalation policy `reask-first`, the
+  same shape of ask as that arm) inherited nearly all of it: tier-1
+  3492/3530 calls were cache hits (98.9%), tier-2 239/249 (96.0%).
+  `eager-escalation` and `patient` diverge from `baseline`'s ask pattern
+  (different escalation timing means different tier-2 prompts), so their
+  cache hit rates are lower, especially on tier 2: `eager-escalation`
+  tier-1 3244/3261 (99.5%), tier-2 240/385 (62.3%); `patient` tier-1
+  3363/3506 (95.9%), tier-2 178/205 (86.8%).
+
+## Command, pre-flight estimate and spend
+
+```
+docker exec crossword-solver sh -c 'nohup xw bench sets/modern-12.json --profiles baseline,eager-escalation,patient --repeat 3 --max-usd 10 --concurrency 2 > /app/logs/bench-escalation-flash.log 2>&1 &'
+```
+
+Pre-flight estimate:
+
+```
+estimate: 108 runs (12 puzzles x 3 profiles x 3 repeats) ~ $2.160000 (--max-usd 10.000000)
+```
+
+The run finished well under the $10 ceiling. Total spend across the 108
+records: $0.421211 `usdBilled` / $3.004428 `usdCounterfactual` (about 30%
+of the ceiling on the counterfactual basis, per B2's cost-accounting rule
+of always deciding on `usdCounterfactual`). Per profile:
+
+| profile | usd billed | usd counterfactual |
+| --- | --- | --- |
+| baseline | 0.030023 | 0.948303 |
+| eager-escalation | 0.311167 | 1.201640 |
+| patient | 0.080021 | 0.854485 |
+
+Billed spend is far below counterfactual across the board because most
+tier-1 calls, and most of `baseline`'s and `patient`'s tier-2 calls, were
+cache hits (see Environment above); `eager-escalation` billed the most in
+real dollars because its escalation timing produced the most tier-2 calls
+that missed the cache.
+
+**Wall clock:** 9 minutes 2 seconds (earliest run start, back-computed as
+`timestamp - wallMs`, 2026-09-05T22:37:21.378Z; latest run's `timestamp`
+2026-09-05T22:46:22.905Z). This is far shorter than every prior bench in
+this document series (which ran 9 to 156 minutes) because the cache was
+already warm going in.
+
+**Status across the 108 records:** 39 `ok`, 69 `partial`, 0 `error`
+(`baseline` 12 ok / 24 partial; `eager-escalation` 14 ok / 22 partial;
+`patient` 13 ok / 23 partial). **Budget hits:** none on any of the three
+profiles (`budgetHits` is empty for every record).
+
+**Operational detail (mean per puzzle over all three repeats):**
+
+| profile | escalations/puzzle | mean re-asks/slot |
+| --- | --- | --- |
+| baseline | 6.92 | 0.1233 |
+| eager-escalation | 10.69 | 0.0000 |
+| patient | 5.69 | 0.1123 |
+
+`eager-escalation`'s zero mean re-asks/slot is exact, not rounded: its
+policy escalates on the first low-confidence signal instead of re-asking
+tier 1 first, so by construction it never re-asks - the expected sanity
+check for that profile, matching the pattern `tier1-only`'s
+`0.00 escalations/puzzle` served as in docs/benches/model-comparison.md.
+
+## Results per stratum
+
+`letters`/`words`/`perfect` are `aggregate()`'s means
+(`src/eval/aggregate.ts`); `usd/puzzle` and `usd/correct word` both use
+`usdCounterfactual`, per B2 and the spec's cost-accounting rule.
+
+### American stratum (8 puzzles, n = 24 per profile)
+
+| profile | letters (sd) | words | perfect | usd/puzzle (cf) | usd/correct word | tier-2 share | mean wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 0.8001 (0.1386) | 0.6293 | 0.0000 | 0.026161 | 0.000543 | 0.0505 | 2477 ms |
+| eager-escalation | 0.8127 (0.1276) | 0.6425 | 0.0417 | 0.035080 | 0.000713 | 0.0930 | 23758 ms |
+| patient | 0.8017 (0.1459) | 0.6398 | 0.0417 | 0.023676 | 0.000484 | 0.0424 | 2893 ms |
+
+Both perfect solves (1 of 24 for `eager-escalation`, 1 of 24 for
+`patient`) land on the same puzzle, `xd-lat2024-01-08`, on different
+repeats (`eager-escalation` repeat 1, `patient` repeat 2) - see Caveats.
+
+**Per-repeat means (american stratum, n = 8 puzzles per repeat):**
+
+| profile | repeat | letters | words | perfect |
+| --- | --- | --- | --- | --- |
+| baseline | 0 | 0.8177 | 0.6378 | 0.0000 |
+| baseline | 1 | 0.8239 | 0.6511 | 0.0000 |
+| baseline | 2 | 0.7586 | 0.5990 | 0.0000 |
+| eager-escalation | 0 | 0.8333 | 0.6479 | 0.0000 |
+| eager-escalation | 1 | 0.8381 | 0.6739 | 0.1250 |
+| eager-escalation | 2 | 0.7666 | 0.6058 | 0.0000 |
+| patient | 0 | 0.8245 | 0.6510 | 0.0000 |
+| patient | 1 | 0.8192 | 0.6611 | 0.0000 |
+| patient | 2 | 0.7613 | 0.6072 | 0.1250 |
+
+### Cryptic stratum (4 puzzles, n = 12 per profile; reported, not decision-relevant)
+
+| profile | letters (sd) | words | perfect | usd/puzzle (cf) | usd/correct word | tier-2 share | mean wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 0.1752 (0.0925) | 0.0738 | 0.0000 | 0.026704 | 0.012325 | 0.1172 | 3326 ms |
+| eager-escalation | 0.1893 (0.1099) | 0.0848 | 0.0000 | 0.029977 | 0.011991 | 0.1486 | 9462 ms |
+| patient | 0.1509 (0.0830) | 0.0624 | 0.0000 | 0.023855 | 0.013012 | 0.0978 | 17685 ms |
+
+### All 12 puzzles (n = 36 per profile)
+
+| profile | letters (sd) | words | perfect | usd/puzzle (cf) | usd/correct word | tier-2 share | mean wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 0.5918 (0.3234) | 0.4441 | 0.0000 | 0.026342 | 0.000802 | 0.0659 | 2760 ms |
+| eager-escalation | 0.6049 (0.3214) | 0.4566 | 0.0278 | 0.033379 | 0.000993 | 0.1056 | 18992 ms |
+| patient | 0.5847 (0.3361) | 0.4473 | 0.0278 | 0.023736 | 0.000714 | 0.0552 | 7823 ms |
+
+These three rows match the `xw bench` printed summary table exactly
+(profile / n / letters / words / perfect / usd per puzzle / usd per
+correct word).
+
+## Noise floor
+
+Mean, across a stratum's puzzles, of each puzzle's sample standard
+deviation of letters accuracy across its three repeats (same puzzle, same
+profile, sampling noise only) - same definition used throughout this
+document and in docs/benches/model-comparison.md.
+
+| profile | american | cryptic | all 12 |
+| --- | --- | --- | --- |
+| baseline | 0.0463 | 0.0370 | 0.0432 |
+| eager-escalation | 0.0477 | 0.0419 | 0.0458 |
+| patient | 0.0505 | 0.0225 | 0.0412 |
+
+`baseline`'s american noise floor (0.0463) reproduces
+docs/benches/model-comparison.md's `flash-tier1` figure exactly, as it
+should: see the consistency check below.
+
+## Paired comparison on the american stratum (letters accuracy)
+
+Per puzzle, the difference of each profile's repeat-mean letters accuracy
+(mean of 3 repeats) minus `baseline`'s repeat-mean on the same puzzle,
+then the mean, sample standard deviation, standard error and paired
+t-statistic of those 8 per-puzzle differences (df = 7), same method used
+throughout this document.
+
+**eager-escalation minus baseline (n = 8 puzzles):** mean diff = +0.0125,
+paired sd = 0.0181, paired se = 0.0064, t(7) = 1.961, 95% CI (-0.0026,
+0.0277). The CI includes zero. The magnitude (0.0125) is about 27% of
+either profile's own noise floor (0.0463, 0.0477) - well inside sampling
+noise, not a detectable effect.
+
+Repeat-level win count (of the 24 paired repeats: 8 puzzles x 3 repeats,
+matched by repeat index): eager-escalation won 13 of 24, baseline won 2,
+tied 9.
+
+**patient minus baseline (n = 8 puzzles):** mean diff = +0.0016, paired sd
+= 0.0210, paired se = 0.0074, t(7) = 0.210, 95% CI (-0.0160, 0.0191). The
+CI includes zero by a wide margin and the magnitude (0.0016) is about 3-4%
+of either profile's noise floor (0.0463, 0.0505) - indistinguishable from
+noise.
+
+Repeat-level win count: patient won 5 of 24, baseline won 5, tied 14.
+
+Neither alternative profile shows a letters-accuracy difference from
+baseline that clears the noise floor on the american stratum; both 95% CIs
+include zero. This is a different outcome from every earlier tier-1-model
+paired comparison in this document series (v3-vs-v2, and
+docs/benches/model-comparison.md's model-swap arms), all of which had CIs
+that excluded zero - here the three escalation policies genuinely perform
+about the same on raw letter accuracy with the new tier-1 model.
+
+## Decision rule, quoted verbatim (docs/benches/README.md)
+
+> **Decision rule (american stratum only):** Pick the profile with the
+> highest perfect-puzzle rate on the american stratum. If the winner's USD
+> per correct word exceeds the best alternative by more than a factor of
+> 1.5, pick the alternative instead. Report the cryptic stratum and
+> letter-accuracy delta alongside, but do not make decisions on either.
+
+## Applying the rule, step by step
+
+**Step 1 - highest perfect-puzzle rate on the american stratum.**
+american-stratum perfect-puzzle rate: baseline 0.0000 (0 of 24),
+eager-escalation 0.0417 (1 of 24), patient 0.0417 (1 of 24). This is the
+first result in this document series where the american-stratum
+perfect-puzzle rate is not a three-way tie at zero: `eager-escalation` and
+`patient` each solved one repeat of one puzzle
+(`xd-lat2024-01-08`) perfectly. `baseline` is strictly lower and is
+eliminated by step 1. `eager-escalation` and `patient` are tied at the
+maximum, so step 1 does not produce a unique winner between them - the
+same situation the two-way, and previously three-way, ties earlier in this
+document faced.
+
+**Step 2 - resolving the tie with the rule's own cost check.** Following
+the same convention used for the earlier ties in this document (apply the
+rule's cost criterion directly across the tied profiles): USD per correct
+word on `usdCounterfactual`, american stratum: patient $0.000484,
+eager-escalation $0.000713. patient is cheaper; eager-escalation costs
+0.000713 / 0.000484 = 1.4754x patient's price per correct word - just
+under the rule's 1.5x override threshold, so this reads as "patient is the
+cheaper of the tied pair" rather than as an override of a more-accurate
+winner. Applying cost directly to break the tie, as done previously,
+**patient** wins.
+
+**The tie-break is order-dependent, and that matters here.** If instead
+letters accuracy is used to pick a provisional winner from the tied pair
+(eager-escalation 0.8127 > patient 0.8017), then the rule's cost-override
+sentence applies literally: does the provisional winner's (eager-escalation's)
+cost exceed patient's ("the best alternative") by more than 1.5x? No -
+1.4754x is under the threshold, so no override happens and
+**eager-escalation** stays the winner under that reading. The rule's text
+does not say which profile to treat as "the winner" when step 1 itself is
+tied, and the two orderings give two different answers here, with the
+deciding ratio (1.4754x) sitting close enough to the 1.5x threshold that a
+few hundredths of a cent either way would flip which convention matters.
+
+**Conclusion: not decisive.** `baseline` is excluded either way (its
+perfect-puzzle rate is strictly below the tied pair). Between
+`eager-escalation` and `patient`, the rule's text is ambiguous about which
+tie-break convention to use, and the two conventions give different
+winners on a cost ratio (1.4754x) close to the 1.5x threshold that would
+resolve it. Read plainly: this run says "either `eager-escalation` or
+`patient` is preferable to `baseline`," but does not cleanly decide
+between the two. `patient` remains the cheaper of the two per correct word
+and per puzzle, and is the pick if forced to choose one; `eager-escalation`
+has the best raw accuracy (0.8127 letters, 0.6425 words, both highest of
+the three) at nearly 1.5x patient's per-puzzle cost and a noticeably
+higher tier-2 share (0.0930 vs 0.0424) and wall time (23758 ms vs 2893 ms).
+Neither the perfect-puzzle rate difference (1 of 24 vs 0 of 24) nor the
+letters-accuracy differences from baseline are large relative to the noise
+floor (see the paired comparison above), so a repeat with more than 3
+reps, or a larger puzzle set, would be needed to resolve this tie with any
+confidence.
+
+## Consistency check: baseline (this run) versus the flash-tier1 arm of the model comparison
+
+`baseline` here and `flash-tier1` in docs/benches/model-comparison.md are
+the same tier-1/tier-2 model pair, same promptVersion (2), same escalation
+policy (`reask-first`, `baseline`'s default), and the same 12 puzzles at
+3 repeats each - the only difference is that `flash-tier1` ran with a cold
+cache (the first puzzle-level run against this model pair) and `baseline`
+here ran with the cache that run warmed.
+
+**American stratum: exact match.** All 24 paired (puzzle, repeat) records
+have byte-identical `accuracy.letters` (and `words`, `perfect`) values
+between the two runs - not merely "within noise," but literally the same
+floating-point number in all 24 cases, because a cache hit replays the
+same completion the cold run received. Both letters means are
+0.8001077875379248, both standard deviations 0.13859241021475122, both
+noise floors 0.0463. `usdCounterfactual` differs by a negligible
+$0.000030/puzzle (0.026161 here vs 0.026131 there), consistent with
+`usdCounterfactual` pricing every call as if cold, independent of whether
+it was actually a cache hit.
+
+**Cryptic stratum: small, noise-floor-sized differences.** 9 of 12 paired
+records are byte-identical; 3 differ (guardian-cryptic-30100 repeat 0:
+0.3765 vs 0.3272; guardian-cryptic-30102 repeat 0: 0.0694 vs 0.0625;
+guardian-cryptic-30102 repeat 1: 0.1389 vs 0.0625), all cryptic-stratum
+records, all on puzzles/repeats where cryptic's higher escalation rate
+(tier-2 share around 0.12-0.15 versus american's 0.04-0.09) makes a
+tier-2 re-ask's exact wording, and therefore its cache key, more sensitive
+to timing than american's mostly-tier-1 asks. Mean difference across all
+12 cryptic paired records is +0.0111 (baseline slightly higher), well
+inside both runs' cryptic noise floors (0.0370 here, 0.0280 in the model
+comparison). **Conclusion: they agree within noise**, with the american
+stratum agreeing exactly and the cryptic stratum agreeing to well within
+one noise-floor width.
+
+## Caveats
+
+- **The american-stratum decision is not clean.** As detailed above, the
+  rule's step 1 no longer resolves to a flat zero-perfect tie for the
+  first time in this series, but the resulting two-way tie between
+  `eager-escalation` and `patient` is itself not resolved cleanly by the
+  rule's text, and the cost ratio that would settle it (1.4754x) sits
+  close to the 1.5x threshold.
+- **A single perfect solve per profile is a thin signal.** Both perfect
+  results are one repeat of one puzzle each (both on the same puzzle,
+  `xd-lat2024-01-08`, which was also this bench's easiest american puzzle
+  by letters accuracy in every repeat of every profile). A perfect-puzzle
+  rate of 1/24 versus 0/24 easily could flip with a different repeat seed;
+  treat "eager-escalation and patient beat baseline on perfect-puzzle
+  rate" as suggestive, not established.
+- **Warm-cache spend and wall clock are not representative of a genuinely
+  cold run.** Both are far lower here than in any earlier bench in this
+  series because the model comparison bench primed most of the cache the
+  same day; a first-time run against this puzzle set and model pair (as
+  `flash-tier1` was) would cost and take substantially more, as
+  docs/benches/model-comparison.md's own cold-cache figures for the same
+  model pair show ($0.026131/puzzle counterfactual either way, but a mean
+  wall time of 131936 ms there versus 2477 ms here on the american
+  stratum, since `usdCounterfactual` prices a cache hit as if cold but
+  wall clock does not).
+- **`eager-escalation` and `patient` were not fully cache-warm.** Their
+  escalation timing differs from `baseline`'s and from `flash-tier1`'s, so
+  a meaningful share of their tier-2 calls (37.7% of eager-escalation's,
+  13.2% of patient's) were genuine cold calls at real cost and latency;
+  this is part of why `eager-escalation`'s mean wall time (23758 ms,
+  american stratum) is an order of magnitude above `baseline`'s (2477 ms).
+- **This is a three-repeat measurement**, matching the prior
+  prompt-version-3-vs-2 and model-comparison paired measurements in rigor,
+  but still a small sample (8 american puzzles x 3 repeats = 24 paired
+  observations per comparison); the confidence intervals above reflect
+  that sample size.
+- Cryptic stratum is reported for completeness only, per this document's
+  and docs/benches/README.md's convention: the decision rule uses the
+  american stratum only.
+
+## How this differs from the Nemotron-pair result
+
+Every earlier section of this document (now retitled to make this
+explicit) measured `nvidia/Nemotron-3_5-Lightning` as tier 1; this section
+measures `deepseek-ai/DeepSeek-V4-Flash-0731`, the T69 default swap. The
+shape of the result changed along with the model: the Nemotron-pair
+canonical run had american-stratum letters accuracy in the high 0.5s to
+low 0.6s for all three profiles and a three-way tie at a 0.0000
+perfect-puzzle rate, so the decision rule always fell through to its cost
+tie-break, which it won by under 1.1% - a result this document's own text
+called "essentially noise." The Flash pair lifts american-stratum letters
+accuracy into the 0.80-0.81 range for all three profiles (consistent with
+docs/benches/model-comparison.md's finding that the model swap, not the
+escalation policy, drives most of the accuracy gain) and, for the first
+time, produces a nonzero perfect-puzzle rate for two of the three
+profiles - but the rate is a thin 1-of-24 signal for each, the two
+profiles that achieve it are tied, and the resulting cost tie-break
+(1.4754x) is, if anything, an even closer call than the Nemotron pair's
+1.0072x-to-1.0101x margins were to their own 1.5x threshold in the
+opposite sense (there, all three profiles were so close on cost that the
+rule's tie-break barely mattered; here, the two leading profiles are so
+close on cost that which one the tie-break convention favors is itself
+ambiguous). In both cases the conclusion is the same shape: the
+escalation-policy choice among `baseline`, `eager-escalation` and
+`patient` remains undecided by this rule, on this set, regardless of which
+tier-1 model sits underneath it; only the level of raw accuracy the
+profiles operate at, not which profile wins among them, moved between the
+two model pairs.
+
+# Prompt version 3 versus 2 on the Nemotron pair: paired measurement on modern-12 (2026-09-05)
+
+(Tier 1 `nvidia/Nemotron-3_5-Lightning`, tier 2 `deepseek-ai/DeepSeek-V4-Pro`
+throughout this section and every section below it, except where a section
+says otherwise - this is the pre-T69 default tier-1 model. See the "Canonical
+result on modern-12 with the Flash pair" section above for the post-T69
+`deepseek-ai/DeepSeek-V4-Flash-0731` tier-1 result.)
 
 Date: 2026-09-05
 Commit: e66bf2c4c9da7974126e8e1594b7aba191a3d6f5 (main)
