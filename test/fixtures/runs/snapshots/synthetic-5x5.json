@@ -1,6 +1,6 @@
 {
-  "runId": "synthetic-5x5--baseline--20260904T212530Z--2e8e666c",
-  "timestamp": "2026-09-04T21:25:30.992Z",
+  "runId": "synthetic-5x5--baseline--20260905T141139Z--3a8bebc4",
+  "timestamp": "2026-09-05T14:11:39.545Z",
   "status": "ok",
   "puzzle": {
     "id": "synthetic-5x5",
@@ -50,7 +50,7 @@
       "maxConcurrencyTier1": 8,
       "maxConcurrencyTier2": 16
     },
-    "promptVersion": "2"
+    "promptVersion": "3"
   },
   "provenance": {
     "gitCommit": "unknown",
@@ -81,22 +81,22 @@
       "producedBy": 1,
       "batchIndex": null,
       "truthInCandidates": true,
-      "truthRank": 0,
+      "truthRank": 2,
       "rejectCounts": {
-        "length": 5,
+        "length": 1,
         "charset": 0,
-        "pattern": 14,
+        "pattern": 4,
         "clue-echo": 0,
-        "duplicate": 8,
+        "duplicate": 4,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0009211199999999999,
+      "usd": 0.0012042,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 10,
-      "pickedRank": 0
+      "candidatesSeen": 19,
+      "pickedRank": 2
     },
     {
       "slotId": "1D",
@@ -108,22 +108,22 @@
       "producedBy": 1,
       "batchIndex": null,
       "truthInCandidates": true,
-      "truthRank": 1,
+      "truthRank": 0,
       "rejectCounts": {
-        "length": 5,
+        "length": 12,
         "charset": 0,
-        "pattern": 10,
+        "pattern": 47,
         "clue-echo": 1,
-        "duplicate": 0,
+        "duplicate": 1,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.000666,
+      "usd": 0.0011500799999999997,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 5,
-      "pickedRank": 1
+      "candidatesSeen": 12,
+      "pickedRank": 0
     },
     {
       "slotId": "2D",
@@ -137,19 +137,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 2,
+        "length": 6,
         "charset": 0,
-        "pattern": 10,
+        "pattern": 27,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0005571,
+      "usd": 0.0005292599999999999,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 4,
+      "candidatesSeen": 7,
       "pickedRank": 0
     },
     {
@@ -164,19 +164,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 6,
+        "length": 1,
         "charset": 0,
-        "pattern": 1,
+        "pattern": 0,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00022518,
+      "usd": 0.0005625000000000001,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 1,
+      "candidatesSeen": 7,
       "pickedRank": 0
     },
     {
@@ -191,19 +191,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 2,
+        "length": 1,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 4,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.0001053,
-      "reasks": 0,
+      "usd": 0.00023112000000000002,
+      "reasks": 1,
       "escalated": false,
-      "candidatesSeen": 1,
+      "candidatesSeen": 10,
       "pickedRank": 0
     },
     {
@@ -221,16 +221,16 @@
         "length": 0,
         "charset": 0,
         "pattern": 0,
-        "clue-echo": 1,
-        "duplicate": 0,
+        "clue-echo": 0,
+        "duplicate": 2,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00010464,
+      "usd": 0.00012654,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 2,
+      "candidatesSeen": 8,
       "pickedRank": 0
     },
     {
@@ -247,17 +247,17 @@
       "rejectCounts": {
         "length": 2,
         "charset": 0,
-        "pattern": 8,
-        "clue-echo": 0,
+        "pattern": 0,
+        "clue-echo": 1,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00070434,
+      "usd": 0.0001248,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 1,
+      "candidatesSeen": 7,
       "pickedRank": 0
     },
     {
@@ -272,19 +272,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 0,
+        "length": 1,
         "charset": 0,
-        "pattern": 3,
+        "pattern": 0,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00021276,
+      "usd": 0.00008394,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 3,
+      "candidatesSeen": 2,
       "pickedRank": 0
     },
     {
@@ -299,19 +299,19 @@
       "truthInCandidates": true,
       "truthRank": 0,
       "rejectCounts": {
-        "length": 1,
+        "length": 0,
         "charset": 0,
-        "pattern": 10,
+        "pattern": 0,
         "clue-echo": 0,
-        "duplicate": 0,
+        "duplicate": 3,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00071976,
+      "usd": 0.00012378,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 2,
+      "candidatesSeen": 7,
       "pickedRank": 0
     },
     {
@@ -326,17 +326,17 @@
       "truthInCandidates": true,
       "truthRank": 1,
       "rejectCounts": {
-        "length": 7,
+        "length": 11,
         "charset": 0,
-        "pattern": 0,
+        "pattern": 16,
         "clue-echo": 0,
         "duplicate": 0,
         "rejected-before": 0
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.00257625,
-      "reasks": 0,
+      "usd": 0.00209394,
+      "reasks": 2,
       "escalated": true,
       "candidatesSeen": 6,
       "pickedRank": 1
@@ -362,45 +362,45 @@
       },
       "parseFailures": 0,
       "latencyMs": 0,
-      "usd": 0.000144,
+      "usd": 0.00009414,
       "reasks": 0,
       "escalated": false,
-      "candidatesSeen": 10,
+      "candidatesSeen": 5,
       "pickedRank": 0
     }
   ],
   "calls": {
     "tier1": {
-      "count": 41,
-      "promptTokens": 56087,
-      "completionTokens": 4577,
+      "count": 44,
+      "promptTokens": 49268,
+      "completionTokens": 6903,
       "reasoningTokens": 0,
       "usdBilled": 0,
-      "usdCounterfactual": 0.0044637,
-      "cacheHits": 41,
+      "usdCounterfactual": 0.004612799999999999,
+      "cacheHits": 44,
       "avgLatencyMs": 0
     },
     "tier2": {
       "count": 1,
-      "promptTokens": 843,
-      "completionTokens": 285,
+      "promptTokens": 690,
+      "completionTokens": 144,
       "reasoningTokens": 0,
       "usdBilled": 0,
-      "usdCounterfactual": 0.00247275,
+      "usdCounterfactual": 0.0017115,
       "cacheHits": 1,
       "avgLatencyMs": 0
     }
   },
   "search": {
-    "backtracks": 0,
+    "backtracks": 2,
     "discrepancies": 0,
-    "wipeouts": 0,
-    "ac3Reductions": 9
+    "wipeouts": 3,
+    "ac3Reductions": 12
   },
   "repair": {
-    "proposals": 672,
+    "proposals": 168,
     "accepted": 4
   },
-  "wallMs": 29,
+  "wallMs": 24,
   "budgetHits": []
 }
