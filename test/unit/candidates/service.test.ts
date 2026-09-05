@@ -753,3 +753,290 @@ describe('T61: cache hits are priced counterfactually on llm:usage', () => {
     expect(warmUsd).toBeCloseTo(coldUsd, 9);
   });
 });
+
+/**
+ * T71. `constrainedSamples` above 1 turns one constrained ask into N requests
+ * whose accepted answers are merged by vote. Everything below asks with
+ * purpose `reask` (the `constrained` template); the seed path is asserted
+ * unchanged.
+ */
+describe('T71: multi-sample voting on constrained calls', () => {
+  const sampled = (overrides: Record<string, unknown> = {}): Profile =>
+    profile({ constrainedSamples: 3, ...overrides });
+
+  const reask = (overrides: Partial<CandidateRequest> = {}): CandidateRequest =>
+    request({ purpose: 'reask', pattern: 'H????', ...overrides });
+
+  it('issues one request per sample, with sampleIndex 0..2 and distinct cache keys', async () => {
+    const transport = stubTransport(
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+    );
+    const h = harness(transport, { profile: sampled() });
+
+    await h.service.getCandidates(reask());
+
+    expect(transport.callCount).toBe(3);
+    expect(h.records.map((r) => r.sampleIndex)).toEqual([0, 1, 2]);
+    const keys = h.records.map((r) => r.cacheKey);
+    expect(new Set(keys).size).toBe(3);
+    // One slot:ask per sample, one slot:candidates for the merged list.
+    expect(eventsOfType(h.events, 'slot:ask')).toHaveLength(3);
+    expect(eventsOfType(h.events, 'slot:candidates')).toHaveLength(1);
+  });
+
+  it('offsets the sample indices by the run repeat index so repeats never collide', async () => {
+    const transport = stubTransport(
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+    );
+    const h = harness(transport, { profile: sampled() });
+
+    await h.service.getCandidates(reask({ sampleIndex: 1 }));
+
+    expect(h.records.map((r) => r.sampleIndex)).toEqual([3, 4, 5]);
+  });
+
+  it('merges by answer: votes counted, 0.15 a vote on the best score, capped at 1', async () => {
+    // HAVOC is first in two samples (score 1/2) and second in one (1/3), so it
+    // takes 3 votes and the better of the two scores; HOSTS and HYENA take one
+    // vote each. Every answer matches the H???? pattern the ask carries.
+    const transport = stubTransport(
+      singleBody([
+        ['HAVOC', 0.8],
+        ['HOSTS', 0.4],
+      ]),
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([
+        ['HYENA', 0.7],
+        ['HAVOC', 0.6],
+      ]),
+    );
+    const h = harness(transport, { profile: sampled() });
+
+    const result = await h.service.getCandidates(reask());
+
+    expect(result.candidates.map((c) => c.answer)).toEqual(['HAVOC', 'HYENA', 'HOSTS']);
+    expect(result.candidates.map((c) => c.votes)).toEqual([3, 1, 1]);
+    expect(result.candidates[0]?.score).toBeCloseTo(1 / 2 + 2 * 0.15, 9);
+    // Single-vote answers keep their rank score: HYENA was first, HOSTS second.
+    expect(result.candidates[1]?.score).toBeCloseTo(1 / 2, 9);
+    expect(result.candidates[2]?.score).toBeCloseTo(1 / 3, 9);
+  });
+
+  it('caps a merged score at 1.0', async () => {
+    const transport = stubTransport(
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+      singleBody([['HAVOC', 0.8]]),
+    );
+    const h = harness(transport, { profile: sampled({ constrainedSamples: 5 }) });
+
+    const result = await h.service.getCandidates(reask());
+
+    // 0.5 + 4 * 0.15 would be 1.1.
+    expect(result.candidates[0]?.votes).toBe(5);
+    expect(result.candidates[0]?.score).toBe(1);
+  });
+
+  it('orders by votes, then score, then answer, whatever order the samples arrived in', async () => {
+    // HYENA and HOSTS both take one vote at rank 0 (score 1/2), so only the
+    // answer breaks the tie; HAVOC has three votes and leads regardless.
+    const transport = stubTransport(
+      singleBody([
+        ['HYENA', 0.9],
+        ['HAVOC', 0.8],
+      ]),
+      singleBody([
+        ['HOSTS', 0.9],
+        ['HAVOC', 0.8],
+      ]),
+      singleBody([['HAVOC', 0.8]]),
+    );
+    const h = harness(transport, { profile: sampled() });
+
+    const result = await h.service.getCandidates(reask());
+
+    expect(result.candidates.map((c) => c.answer)).toEqual(['HAVOC', 'HOSTS', 'HYENA']);
+  });
+
+  it('prices a cold call plus two cache hits correctly', async () => {
+    // Sample 0's key is already in the cache from an identical earlier ask;
+    // the two others are cold.
+    const first = harness(stubTransport(singleBody([['HAVOC', 0.8]])), {
+      profile: sampled({ constrainedSamples: 1 }),
+    });
+    await first.service.getCandidates(reask());
+    const coldUsd = eventsOfType(first.events, 'llm:usage')[0]?.usdCounterfactual ?? 0;
+    expect(coldUsd).toBeGreaterThan(0);
+
+    const h = harness(stubTransport(singleBody([['HAVOC', 0.8]]), singleBody([['HAVOC', 0.8]])), {
+      profile: sampled(),
+    });
+
+    const result = await h.service.getCandidates(reask());
+
+    const usage = eventsOfType(h.events, 'llm:usage');
+    expect(usage).toHaveLength(3);
+    expect(usage.map((e) => e.cacheHit)).toEqual([true, false, false]);
+    expect(usage.map((e) => e.usdBilled)).toEqual([0, coldUsd, coldUsd]);
+    expect(usage.every((e) => e.usdCounterfactual === coldUsd)).toBe(true);
+    // One sample was served cold, so the ask as a whole is not a cache hit and
+    // reports the two cold calls' tokens, which is what the budget is charged.
+    expect(result.cacheHit).toBe(false);
+    expect(result.usage?.totalTokens).toBe(240);
+  });
+
+  it('reports an ask served entirely from cache as a cache hit', async () => {
+    const cold = harness(
+      stubTransport(
+        singleBody([['HAVOC', 0.8]]),
+        singleBody([['HAVOC', 0.8]]),
+        singleBody([['HAVOC', 0.8]]),
+      ),
+      { profile: sampled() },
+    );
+    await cold.service.getCandidates(reask());
+
+    const warm = harness(stubTransport(), { profile: sampled() });
+    const result = await warm.service.getCandidates(reask());
+
+    expect(warm.transport.callCount).toBe(0);
+    expect(result.cacheHit).toBe(true);
+    expect(result.candidates.map((c) => c.answer)).toEqual(['HAVOC']);
+    expect(result.candidates[0]?.votes).toBe(3);
+    expect(eventsOfType(warm.events, 'llm:usage').every((e) => e.usdBilled === 0)).toBe(true);
+  });
+
+  it('survives a sample that comes back with nothing, and merges the rest', async () => {
+    const transport = stubTransport(
+      singleBody([['HAVOC', 0.8]]),
+      // Two unparseable replies: that sample retries once at temperature 0 and
+      // then gives up, contributing no votes.
+      'not json at all',
+      'still not json',
+      singleBody([['HAVOC', 0.8]]),
+    );
+    const h = harness(transport, { profile: sampled() });
+
+    const result = await h.service.getCandidates(reask());
+
+    expect(transport.callCount).toBe(4);
+    expect(result.candidates.map((c) => c.answer)).toEqual(['HAVOC']);
+    expect(result.candidates[0]?.votes).toBe(2);
+    expect(h.service.parseFailures('1A')).toBe(2);
+  });
+
+  it('returns an empty domain when every sample fails', async () => {
+    const transport = stubTransport('no', 'no', 'no', 'no', 'no', 'no');
+    const h = harness(transport, { profile: sampled() });
+
+    const result = await h.service.getCandidates(reask());
+
+    expect(result.candidates).toEqual([]);
+    expect(result.cacheHit).toBe(false);
+    expect(eventsOfType(h.events, 'slot:candidates')).toHaveLength(1);
+  });
+
+  it('averages clue_understood across the samples that answered', async () => {
+    const transport = stubTransport(
+      singleBody([['HAVOC', 0.8]], 0.9),
+      singleBody([['HAVOC', 0.8]], 0.6),
+      singleBody([['HAVOC', 0.8]], 0.3),
+    );
+    const h = harness(transport, { profile: sampled() });
+
+    const result = await h.service.getCandidates(reask());
+
+    expect(result.clueUnderstood).toBeCloseTo(0.6, 9);
+  });
+
+  it('does not sample a seed ask, whatever constrainedSamples says', async () => {
+    const transport = stubTransport(singleBody([['HAVOC', 0.8]]));
+    const h = harness(transport, { profile: sampled() });
+
+    await h.service.getCandidates(request({ purpose: 'seed' }));
+
+    expect(transport.callCount).toBe(1);
+    expect(h.records.map((r) => r.sampleIndex)).toEqual([0]);
+  });
+
+  it('issues exactly one request when constrainedSamples is absent (the default)', async () => {
+    const transport = stubTransport(singleBody([['HAVOC', 0.8]]));
+    const h = harness(transport);
+    expect(h.deps.profile.constrainedSamples).toBeUndefined();
+
+    const result = await h.service.getCandidates(reask());
+
+    expect(transport.callCount).toBe(1);
+    expect(h.records).toHaveLength(1);
+    expect(h.records[0]?.sampleIndex).toBe(0);
+    expect(result.candidates[0]?.votes).toBe(1);
+    expect(result.candidates[0]?.score).toBe(1 / 2);
+    expect(eventsOfType(h.events, 'slot:ask')).toHaveLength(1);
+  });
+});
+
+/**
+ * T71, acceptance 3. `max_tokens` is already a B23 key field, so a raised
+ * constrained token budget separates the keys on its own; the effort is
+ * folded in on top of it, so two efforts sharing one token budget are still
+ * two keys. Neither touches a seed ask, which is why every cache entry
+ * captured before T71 still replays.
+ */
+describe('T71: the reasoning effort reaches the cache key', () => {
+  const keyOf = async (
+    profileOverrides: Record<string, unknown>,
+    reqOverrides: Partial<CandidateRequest>,
+  ): Promise<string> => {
+    const h = harness(stubTransport(singleBody([['HAVOC', 0.8]])), {
+      profile: profile(profileOverrides),
+    });
+    await h.service.getCandidates(request({ pattern: 'H????', ...reqOverrides }));
+    return h.records[0]?.cacheKey ?? '';
+  };
+
+  const OFF = {};
+  const MEDIUM = { reasoning: { constrainedEffort: 'medium', constrainedMaxTokens: 2048 } };
+  const HIGH = { reasoning: { constrainedEffort: 'high', constrainedMaxTokens: 2048 } };
+  const MEDIUM_LONGER = { reasoning: { constrainedEffort: 'medium', constrainedMaxTokens: 4096 } };
+
+  it('changes a constrained request key between "none" and "medium"', async () => {
+    const off = await keyOf(OFF, { purpose: 'reask' });
+    const medium = await keyOf(MEDIUM, { purpose: 'reask' });
+    expect(medium).not.toBe(off);
+    expect(medium).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('changes it between two efforts sharing a token budget', async () => {
+    const medium = await keyOf(MEDIUM, { purpose: 'reask' });
+    const high = await keyOf(HIGH, { purpose: 'reask' });
+    expect(high).not.toBe(medium);
+  });
+
+  it('changes it when only the constrained token budget moves', async () => {
+    const medium = await keyOf(MEDIUM, { purpose: 'reask' });
+    const longer = await keyOf(MEDIUM_LONGER, { purpose: 'reask' });
+    expect(longer).not.toBe(medium);
+  });
+
+  it('leaves a seed request key untouched by the group', async () => {
+    const off = await keyOf(OFF, { purpose: 'seed' });
+    const medium = await keyOf(MEDIUM, { purpose: 'seed' });
+    const high = await keyOf(HIGH, { purpose: 'seed' });
+    expect(medium).toBe(off);
+    expect(high).toBe(off);
+  });
+
+  it('is the plain B23 key whenever the group is off', async () => {
+    const escalate = await keyOf(OFF, { purpose: 'escalate', tier: 2 });
+    const repair = await keyOf(OFF, { purpose: 'repair' });
+    expect(escalate).toMatch(/^[0-9a-f]{40}$/);
+    expect(repair).toMatch(/^[0-9a-f]{40}$/);
+    expect(escalate).not.toBe(repair);
+  });
+});

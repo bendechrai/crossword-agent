@@ -19,9 +19,9 @@ import type {
   LlmTransport,
   TokenUsage,
 } from '../llm/types.js';
-import type { Profile } from '../profiles/schema.js';
+import { constrainedSamplesOf, type Profile } from '../profiles/schema.js';
 import { calibrate } from '../score/calibrate.js';
-import { cacheKey } from '../util/hash.js';
+import { cacheKey, canonicalJson, sha1 } from '../util/hash.js';
 import { log } from '../util/log.js';
 import { validateCandidates } from '../validate/normalise.js';
 import type { CacheEntry, CandidateCache } from './cache.js';
@@ -69,6 +69,17 @@ export interface RunCandidateService extends CandidateService {
 /** The second attempt after a parse failure is always at temperature 0 (spec step 3). */
 const RETRY_TEMPERATURE = 0;
 
+/**
+ * T71. What one extra sample agreeing on an answer is worth, added to the
+ * best single-sample score of that answer and capped at 1.0. Agreement across
+ * samples is the "sampling agreement" signal of docs/crossword-algorithms.md
+ * (Calibration): with `rank` calibration a first-placed answer scores 0.5 and
+ * a second-placed 0.333, so 0.15 a vote is enough for two samples agreeing on
+ * their second choice to outrank one sample's unsupported first choice, and
+ * not enough for a single lucky sample to be overtaken by noise.
+ */
+const VOTE_BONUS = 0.15;
+
 interface Prepared {
   promptKind: PromptKind;
   model: string;
@@ -76,6 +87,14 @@ interface Prepared {
   request: LlmRequest;
   key: string;
   batchSize: number;
+}
+
+/** One constrained sample's outcome, before the votes are merged (T71). */
+interface SampleOutcome {
+  /** Null when nothing came back at all: two parse failures, or an offline-lenient miss. */
+  response: CandidateResponse | null;
+  cacheHit: boolean;
+  usage: TokenUsage | null;
 }
 
 function chunkInto<T>(items: ReadonlyArray<T>, size: number): T[][] {
@@ -107,6 +126,62 @@ function splitUsage(usage: TokenUsage, parts: number): TokenUsage[] {
     }
     return out;
   });
+}
+
+/**
+ * T71's vote merge over the accepted candidates of N constrained samples of
+ * one slot: one entry per normalised answer, carrying how many samples
+ * proposed it, the best single-sample score plus `VOTE_BONUS` for each
+ * additional sample that agreed (capped at 1.0), and the rest of the fields
+ * of whichever sample scored it best.
+ *
+ * `validate/normalise.ts` dedupes within a sample, so an answer appears at
+ * most once per sample and `votes` is a count of samples, never of repeats
+ * inside one list.
+ *
+ * The order is votes, then score, then the answer itself: a total order over
+ * distinct answers, so the merged list is a function of the samples alone and
+ * not of the order the map happened to be built in.
+ */
+function mergeSamples(samples: ReadonlyArray<ReadonlyArray<Candidate>>): Candidate[] {
+  const byAnswer = new Map<string, { best: Candidate; votes: number }>();
+  for (const sample of samples) {
+    for (const candidate of sample) {
+      const seen = byAnswer.get(candidate.answer);
+      if (seen === undefined) {
+        byAnswer.set(candidate.answer, { best: candidate, votes: 1 });
+        continue;
+      }
+      seen.votes += 1;
+      if (candidate.score > seen.best.score) seen.best = candidate;
+    }
+  }
+  return [...byAnswer.values()]
+    .map(({ best, votes }) => ({
+      ...best,
+      votes,
+      score: Math.min(1, best.score + VOTE_BONUS * (votes - 1)),
+    }))
+    .sort((a, b) => {
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      if (b.score !== a.score) return b.score - a.score;
+      return a.answer < b.answer ? -1 : a.answer > b.answer ? 1 : 0;
+    });
+}
+
+/** Element-wise sum of the usage blobs of several calls (T71); null when there are none. */
+function sumUsage(usages: ReadonlyArray<TokenUsage>): TokenUsage | null {
+  if (usages.length === 0) return null;
+  const total: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  let reasoning: number | undefined;
+  for (const usage of usages) {
+    total.promptTokens += usage.promptTokens;
+    total.completionTokens += usage.completionTokens;
+    total.totalTokens += usage.totalTokens;
+    if (usage.reasoningTokens !== undefined) reasoning = (reasoning ?? 0) + usage.reasoningTokens;
+  }
+  if (reasoning !== undefined) total.reasoningTokens = reasoning;
+  return total;
 }
 
 /** Reasoning tokens are billed as completion tokens unless measured otherwise (spec). */
@@ -165,14 +240,28 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
   const ledger = new Map<string, Candidate[]>();
   const parseFailureCount = new Map<string, number>();
 
+  /**
+   * The B23 key for one call, plus T71's reasoning effort when there is one.
+   *
+   * `request.maxTokens` and `request.temperature` are already B23 key fields,
+   * so a constrained call's raised token budget separates its key from the
+   * same call's key with reasoning off. The effort itself is not a member of
+   * `CacheKeyInput` (`src/util/hash.ts` is a frozen contract module), so it
+   * is folded in as a second hash over the B23 key: byte-identical to the
+   * B23 key whenever no effort applies - which is every call every profile
+   * made before T71, so every committed cache entry still matches - and
+   * distinct per effort when one does, which is what stops a `medium` answer
+   * being served to a `high` request.
+   */
   function keyFor(
     req: CandidateRequest,
     model: string,
     promptKind: PromptKind,
     batchSize: number,
     request: LlmRequest,
+    constrainedReasoningEffort: string | null = null,
   ): string {
-    return cacheKey({
+    const key = cacheKey({
       model,
       promptVersion: profile.promptVersion,
       promptKind,
@@ -192,6 +281,8 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       topP: request.topP,
       maxTokens: request.maxTokens,
     });
+    if (constrainedReasoningEffort === null) return key;
+    return sha1(canonicalJson({ key, reasoningEffort: constrainedReasoningEffort }));
   }
 
   /** Steps 1 and 2 for one clue: route, render, and derive the cache key. */
@@ -209,7 +300,7 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       model: routed.model,
       inlineSchema: routed.inlineSchema,
       request,
-      key: keyFor(req, routed.model, promptKind, 1, request),
+      key: keyFor(req, routed.model, promptKind, 1, request, routed.constrainedReasoningEffort),
       batchSize: 1,
     };
   }
@@ -369,13 +460,17 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
     });
   }
 
-  /** Steps 4 and 5: validate, calibrate, emit, and add to the run ledger. */
-  function finish(
+  /**
+   * Steps 4 and 5 for one response: validate (emitting a `candidate:reject`
+   * per drop) and calibrate. Split out of `finish` so that T71's sampled ask
+   * can evaluate each sample on its own and still emit a single
+   * `slot:candidates` for the merged list.
+   */
+  function evaluate(
     req: CandidateRequest,
     response: CandidateResponse,
     fromCache: boolean,
-    usage: TokenUsage | null,
-  ): CandidateResult {
+  ): Candidate[] {
     const validated = validateCandidates({
       raw: response.candidates,
       length: req.length,
@@ -404,27 +499,59 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
       );
     }
 
-    const candidates = calibrate(validated.accepted, {
+    return calibrate(validated.accepted, {
       mode: profile.calibration,
       samples: profile.samples,
     });
+  }
+
+  /**
+   * The other half of `finish`: put the candidates the slot ends up with into
+   * the run ledger, announce them once, and shape the result. One call per
+   * ask, whether that ask was one request or T71's N samples merged.
+   */
+  function deliver(
+    req: CandidateRequest,
+    candidates: ReadonlyArray<Candidate>,
+    clueUnderstood: number,
+    fromCache: boolean,
+    usage: TokenUsage | null,
+    notes?: string,
+  ): CandidateResult {
     remember(req.slotId, candidates);
     emit({
       type: 'slot:candidates',
       slotId: req.slotId,
       accepted: candidates.map((c) => ({ answer: c.answer, score: c.score })),
-      clueUnderstood: response.clue_understood,
+      clueUnderstood,
       cacheHit: fromCache,
     });
 
     const result: CandidateResult = {
-      candidates,
-      clueUnderstood: response.clue_understood,
+      candidates: [...candidates],
+      clueUnderstood,
       cacheHit: fromCache,
     };
-    if (response.notes !== undefined) result.notes = response.notes;
+    if (notes !== undefined) result.notes = notes;
     if (usage !== null) result.usage = usage;
     return result;
+  }
+
+  /** Steps 4 and 5 for a single unsampled ask: evaluate, then deliver. */
+  function finish(
+    req: CandidateRequest,
+    response: CandidateResponse,
+    fromCache: boolean,
+    usage: TokenUsage | null,
+  ): CandidateResult {
+    return deliver(
+      req,
+      evaluate(req, response, fromCache),
+      response.clue_understood,
+      fromCache,
+      usage,
+      response.notes,
+    );
   }
 
   /** What a slot gets when nothing came back at all: an empty domain, not an error. */
@@ -515,9 +642,7 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
    * domain and leave `parseFailures` at 2, which is the tier-1 failure T18 acts
    * on.
    */
-  async function askSingle(req: CandidateRequest): Promise<CandidateResult> {
-    emitAsk(req, promptKindFor(req.purpose), null);
-
+  async function askOnce(req: CandidateRequest): Promise<SampleOutcome> {
     for (let attempt = 0; attempt <= 1; attempt += 1) {
       const prepared = prepareSingle(req, attempt === 0 ? undefined : RETRY_TEMPERATURE);
       const hit = await lookup(req, prepared.key);
@@ -535,11 +660,11 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
           parsed: hit.response,
           parseError: null,
         });
-        return finish(req, hit.response, true, hit.usage);
+        return { response: hit.response, cacheHit: true, usage: hit.usage };
       }
 
       if (offline) {
-        if (deps.offlineLenient) return emptyResult(req);
+        if (deps.offlineLenient) return { response: null, cacheHit: false, usage: null };
         offlineMiss(req, prepared.key);
       }
 
@@ -572,13 +697,96 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
           prepared.key,
           entryFor(req, prepared, prepared.key, response, call.usage, call.latencyMs),
         );
-        return finish(req, response, false, call.usage);
+        return { response, cacheHit: false, usage: call.usage };
       }
 
       noteParseFailure(req.slotId);
     }
 
-    return emptyResult(req);
+    return { response: null, cacheHit: false, usage: null };
+  }
+
+  /** One ask, one request: the pre-T71 path, and the path every seed ask takes. */
+  async function askSingle(req: CandidateRequest): Promise<CandidateResult> {
+    emitAsk(req, promptKindFor(req.purpose), null);
+    const outcome = await askOnce(req);
+    if (outcome.response === null) return emptyResult(req);
+    return finish(req, outcome.response, outcome.cacheHit, outcome.usage);
+  }
+
+  /**
+   * T71. One constrained ask (re-ask, repair or escalation) as `sampleCount`
+   * requests whose accepted answers are merged by vote, for a profile that
+   * sets `constrainedSamples` above 1. This is the "sampling agreement"
+   * calibration of docs/crossword-algorithms.md applied where a crossword
+   * solver can afford it: a constrained ask happens for a minority of slots
+   * and is the ask whose answer the search is about to commit to, whereas
+   * sampling every seed ask would multiply the whole run's cost (that knob is
+   * `samples` with `calibration: 'votes'`, M6/T53, and it is untouched here).
+   *
+   * Each sample is a request in its own right - its own cache key, its own
+   * `slot:ask` event, its own inference-log record, its own temperature-0
+   * retry on a parse failure - and the samples are issued one after another
+   * rather than concurrently, so the event and log order of a sampled ask is
+   * a function of the samples alone and not of which call returned first.
+   *
+   * The sample index is `req.sampleIndex * sampleCount + i`: 0..N-1 for the
+   * usual repeat index 0, and a disjoint block for every further repeat of a
+   * bench, so two repeats of the same puzzle never share a constrained key
+   * (which is the whole point of `--repeat` feeding `sampleIndex`).
+   *
+   * Only the merged list is announced: one `slot:candidates` for the ask, as
+   * the unsampled path emits. A sample that came back with nothing at all
+   * (two parse failures, or an offline-lenient miss) contributes no votes and
+   * does not sink the ask; only every sample failing yields an empty domain.
+   */
+  async function askSampled(req: CandidateRequest, sampleCount: number): Promise<CandidateResult> {
+    const promptKind = promptKindFor(req.purpose);
+    const accepted: Candidate[][] = [];
+    const clueUnderstood: number[] = [];
+    const cachedUsage: TokenUsage[] = [];
+    const coldUsage: TokenUsage[] = [];
+    let notes: string | undefined;
+    let everySampleCached = true;
+
+    for (let index = 0; index < sampleCount; index += 1) {
+      const sample: CandidateRequest = {
+        ...req,
+        sampleIndex: req.sampleIndex * sampleCount + index,
+      };
+      emitAsk(sample, promptKind, null);
+      const outcome = await askOnce(sample);
+      if (!outcome.cacheHit) everySampleCached = false;
+      if (outcome.usage !== null) {
+        (outcome.cacheHit ? cachedUsage : coldUsage).push(outcome.usage);
+      }
+      if (outcome.response === null) continue;
+      accepted.push(evaluate(sample, outcome.response, outcome.cacheHit));
+      clueUnderstood.push(outcome.response.clue_understood);
+      if (notes === undefined && outcome.response.notes !== undefined) {
+        notes = outcome.response.notes;
+      }
+    }
+
+    if (accepted.length === 0) return emptyResult(req);
+
+    // What the caller is charged for. A hit is billed nothing (B2, and
+    // `solver/hooks.ts` skips a result flagged `cacheHit`), so a mixed ask
+    // reports the cold samples' tokens only, and an ask served entirely from
+    // cache reports the cached blobs - which is exactly what the unsampled
+    // path does for its one call in each of those two cases.
+    const usage = everySampleCached ? sumUsage(cachedUsage) : sumUsage(coldUsage);
+    const meanClueUnderstood =
+      clueUnderstood.reduce((sum, value) => sum + value, 0) / clueUnderstood.length;
+
+    return deliver(
+      req,
+      mergeSamples(accepted),
+      meanClueUnderstood,
+      everySampleCached,
+      usage,
+      notes,
+    );
   }
 
   /**
@@ -706,6 +914,12 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
 
   return {
     getCandidates(req: CandidateRequest): Promise<CandidateResult> {
+      // T71: `constrainedSamples` applies to the constrained and escalate
+      // templates only - a seed ask is never sampled here.
+      const sampleCount = constrainedSamplesOf(profile);
+      if (sampleCount > 1 && promptKindFor(req.purpose) !== 'seed') {
+        return askSampled(req, sampleCount);
+      }
       return askSingle(req);
     },
 
