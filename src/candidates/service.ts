@@ -3,7 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { offlineMissError } from '../cli/exit.js';
 import type { Emit } from '../events/types.js';
 import { parseCandidateResponse, type ParseOutcome } from '../llm/parser.js';
-import { promptKindFor, renderBatchedSeedPrompt, renderPrompt } from '../llm/prompts.js';
+import {
+  promptKindFor,
+  promptVersionOf,
+  renderBatchedSeedPrompt,
+  renderPrompt,
+} from '../llm/prompts.js';
 import { usdFor } from '../llm/pricing.js';
 import { route } from '../llm/tierRouter.js';
 import type {
@@ -144,6 +149,14 @@ function failedIds(outcome: ParseOutcome, expectedIds: ReadonlyArray<string>): s
  */
 export function createCandidateService(deps: CandidateServiceDeps): RunCandidateService {
   const { transport, cache, inferenceLog, profile, emit } = deps;
+  // Which prompt template every render below uses (T65). Resolved once, here,
+  // from the profile rather than from a module constant, because
+  // `profile.promptVersion` is also the version the B23 cache key carries
+  // (`keyFor` below) and the inference log records: reading the two from
+  // different places is what would let one version's prompt bytes sit behind
+  // another version's cache entry. An unrenderable value fails here, before any
+  // call is made or any key is derived.
+  const promptVersion = promptVersionOf(profile.promptVersion);
   // `--offline-lenient` implies `--offline`; it only changes what a miss does.
   const offline = deps.offline || deps.offlineLenient;
   const routeOptions = deps.seed === undefined ? {} : { seed: deps.seed };
@@ -185,7 +198,10 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
   function prepareSingle(req: CandidateRequest, temperature?: number): Prepared {
     const promptKind = promptKindFor(req.purpose);
     const routed = route(req, profile, routeOptions);
-    const rendered = renderPrompt(req, promptKind, { inlineSchema: routed.inlineSchema });
+    const rendered = renderPrompt(req, promptKind, {
+      inlineSchema: routed.inlineSchema,
+      version: promptVersion,
+    });
     const request: LlmRequest = { ...routed.request, messages: rendered.messages };
     if (temperature !== undefined) request.temperature = temperature;
     return {
@@ -206,7 +222,10 @@ export function createCandidateService(deps: CandidateServiceDeps): RunCandidate
     const first = reqs[0];
     if (first === undefined) throw new Error('prepareBatch: a batch needs at least one request');
     const routed = route(first, profile, routeOptions);
-    const rendered = renderBatchedSeedPrompt(reqs, { inlineSchema: routed.inlineSchema });
+    const rendered = renderBatchedSeedPrompt(reqs, {
+      inlineSchema: routed.inlineSchema,
+      version: promptVersion,
+    });
     const request: LlmRequest = { ...routed.request, messages: rendered.messages };
     const prepared: Prepared = {
       promptKind: rendered.promptKind,

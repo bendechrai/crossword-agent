@@ -1,12 +1,12 @@
 import { usageError } from '../cli/exit.js';
-import { PROMPT_VERSION } from '../llm/prompts.js';
+import { PAIRED_PROMPT_VERSION, PROMPT_VERSION } from '../llm/prompts.js';
 import type { Profile } from './schema.js';
 
 /**
  * T23 (B8): every built-in as a complete literal object typechecked against
- * `Profile` - `baseline`, `eager-escalation`, `patient`, `no-repair`,
- * `tier1-only`, `strong-only`, `votes3`, `batch1`, `batch2`, `batch3`,
- * `batch5`, `batch8`.
+ * `Profile` - `baseline`, `baseline-pv2`, `eager-escalation`, `patient`,
+ * `no-repair`, `tier1-only`, `strong-only`, `votes3`, `batch1`, `batch2`,
+ * `batch3`, `batch5`, `batch8`.
  *
  * `maxTier2CallsPerPuzzle` is 25 rather than the schema default of 15 (T62):
  * the canonical bench spent the 15 on all-`?` escalations at termination, and
@@ -28,6 +28,14 @@ import type { Profile } from './schema.js';
  * (`candidates/service.ts`) and the inference log, so a bump that changed the
  * prompt bytes here but left these literals behind would serve the old
  * version's cached responses to the new version's prompts.
+ *
+ * `baseline-pv2` is the one profile that does not carry `PROMPT_VERSION`. It
+ * exists for a single experiment (T65): version 3 is version 2 with the
+ * count-and-drop length self-check removed, and the only honest way to say what
+ * that instruction is worth is to run the same puzzles under both and compare
+ * slot by slot. It is `baseline` in every other field, so a paired run differs
+ * in the prompt bytes and in nothing else. Delete it once the question is
+ * settled; it is not a tuning knob.
  */
 export const baseline = {
   name: 'baseline',
@@ -50,6 +58,33 @@ export const baseline = {
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
   promptVersion: PROMPT_VERSION,
+} satisfies Profile;
+
+/**
+ * `baseline` with the previous prompt version (T65), for the paired measurement
+ * described on the doc comment above. Every other field is `baseline`'s.
+ */
+export const baselinePv2 = {
+  name: 'baseline-pv2',
+  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+  candidatesPerAsk: 10,
+  calibration: 'rank',
+  samples: 1,
+  batchSize: 1,
+  reasksPerSlot: 2,
+  sampling: { temperature: 0.2, maxTokens: 512 },
+  escalation: {
+    policy: 'reask-first',
+    clueUnderstoodThreshold: 0.4,
+    maxTier2CallsPerPuzzle: 25,
+    escalationsPerSlot: 1,
+  },
+  search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+  repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+  budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+  rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const eagerEscalation = {
@@ -323,6 +358,7 @@ export const batch8 = {
  */
 const BUILTINS: ReadonlyMap<string, Profile> = new Map<string, Profile>([
   ['baseline', baseline],
+  ['baseline-pv2', baselinePv2],
   ['eager-escalation', eagerEscalation],
   ['patient', patient],
   ['no-repair', noRepair],

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ExitCode, isCliError } from '../../../src/cli/exit.js';
 import {
   baseline,
+  baselinePv2,
   batch1,
   batch2,
   batch3,
@@ -23,6 +24,7 @@ import type { Profile } from '../../../src/profiles/schema.js';
 
 const EXPECTED_NAMES = [
   'baseline',
+  'baseline-pv2',
   'eager-escalation',
   'patient',
   'no-repair',
@@ -38,6 +40,7 @@ const EXPECTED_NAMES = [
 
 /** Every built-in field that a spec test below asserts differs from `baseline`. */
 const EXPECTED_DIFFERENCE_FROM_BASELINE: Record<string, (p: Profile) => unknown> = {
+  'baseline-pv2': (p) => p.promptVersion,
   'eager-escalation': (p) => p.escalation.policy,
   patient: (p) => p.reasksPerSlot,
   'no-repair': (p) => p.repair.enabled,
@@ -68,7 +71,7 @@ const PROTOTYPE_MEMBER_NAMES = [
 ];
 
 describe('builtins', () => {
-  it('builtinNames() lists exactly the twelve documented names', () => {
+  it('builtinNames() lists exactly the thirteen documented names', () => {
     expect(builtinNames().sort()).toEqual([...EXPECTED_NAMES].sort());
   });
 
@@ -186,6 +189,25 @@ describe('builtins', () => {
     const { repair: _baselineRepair, name: _baselineName, ...baselineRest } = baseline;
     expect(rest).toEqual(baselineRest);
     expect(noRepair.repair).toEqual({ ...baseline.repair, enabled: false });
+  });
+
+  // T65: the paired-measurement profile. It exists to isolate one prompt
+  // instruction, so any second difference from `baseline` would confound the
+  // comparison it is for.
+  it('baseline-pv2 is baseline with the previous prompt version and nothing else', () => {
+    expect(baselinePv2.promptVersion).toBe('2');
+    expect(baseline.promptVersion).toBe('3');
+    const { name: _name, promptVersion: _version, ...rest } = baselinePv2;
+    const { name: _baselineName, promptVersion: _baselineVersion, ...baselineRest } = baseline;
+    expect(rest).toEqual(baselineRest);
+  });
+
+  it('every other built-in carries the default prompt version', () => {
+    for (const [name, profile] of Object.entries(getBuiltins())) {
+      expect(profile.promptVersion, `${name} promptVersion`).toBe(
+        name === 'baseline-pv2' ? '2' : '3',
+      );
+    }
   });
 
   it('tier1-only has maxTier2CallsPerPuzzle 0', () => {
