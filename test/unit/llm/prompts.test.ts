@@ -230,15 +230,15 @@ describe('PROMPT_VERSION (T65)', () => {
   // leave every key unchanged, so a pre-existing cache would answer version-3
   // prompts with version-2 responses and `xw cache clear --prompt-version`
   // would target the wrong entries. So no other module may spell a version out.
-  it('is what every built-in but baseline-pv2 carries, and the schema default', () => {
+  it('is what every built-in but baseline-pv3 carries, and the schema default', () => {
     const profiles = Object.values(getBuiltins());
     expect(profiles).toHaveLength(13);
     for (const profile of profiles) {
       expect(profile.promptVersion).toBe(
-        profile.name === 'baseline-pv2' ? PAIRED_PROMPT_VERSION : PROMPT_VERSION,
+        profile.name === 'baseline-pv3' ? PROMPT_VERSION : PAIRED_PROMPT_VERSION,
       );
     }
-    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PROMPT_VERSION);
+    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PAIRED_PROMPT_VERSION);
   });
 
   it('is the only place in src/ a prompt version literal is written', () => {
@@ -982,16 +982,16 @@ describe('the candidate service renders the profile version (T65, acceptance 2)'
     expect(v2.key).not.toBe(v3.key);
   });
 
-  it('renders the built-in profiles the same way: baseline is 3, baseline-pv2 is 2', () => {
+  it('renders the built-in profiles the same way: baseline is 2, baseline-pv3 is 3', () => {
     const builtins = getBuiltins();
     const baseline = builtins['baseline'];
-    const pv2 = builtins['baseline-pv2'];
-    expect(baseline?.promptVersion).toBe('3');
-    expect(pv2?.promptVersion).toBe('2');
+    const pv3 = builtins['baseline-pv3'];
+    expect(baseline?.promptVersion).toBe('2');
+    expect(pv3?.promptVersion).toBe('3');
     const { name: _baselineName, ...baselineRest } = baseline ?? { name: '' };
-    const { name: _pv2Name, ...pv2Rest } = pv2 ?? { name: '' };
+    const { name: _pv3Name, ...pv3Rest } = pv3 ?? { name: '' };
     // Same profile but for the version: that is what makes the run paired.
-    expect({ ...pv2Rest, promptVersion: '3' }).toEqual(baselineRest);
+    expect({ ...pv3Rest, promptVersion: '2' }).toEqual(baselineRest);
   });
 
   it('refuses a profile carrying a version it cannot render', () => {

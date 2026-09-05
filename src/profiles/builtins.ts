@@ -4,7 +4,7 @@ import type { Profile } from './schema.js';
 
 /**
  * T23 (B8): every built-in as a complete literal object typechecked against
- * `Profile` - `baseline`, `baseline-pv2`, `eager-escalation`, `patient`,
+ * `Profile` - `baseline`, `baseline-pv3`, `eager-escalation`, `patient`,
  * `no-repair`, `tier1-only`, `strong-only`, `votes3`, `batch1`, `batch2`,
  * `batch3`, `batch5`, `batch8`.
  *
@@ -22,20 +22,25 @@ import type { Profile } from './schema.js';
  * factory over a single varying field: a reader scanning `batch5` should see
  * every field, not a call site plus a shared template.
  *
- * `promptVersion` is the one exception to "written out as a literal": it is
- * `PROMPT_VERSION` from `llm/prompts.ts`, the single owner of the version
- * (B49). It is the profile's copy that reaches the B23 cache key
- * (`candidates/service.ts`) and the inference log, so a bump that changed the
- * prompt bytes here but left these literals behind would serve the old
- * version's cached responses to the new version's prompts.
+ * `promptVersion` is the one exception to "written out as a literal": every
+ * ordinary built-in below is `PAIRED_PROMPT_VERSION` from `llm/prompts.ts`,
+ * currently `"2"` (T66). It is the profile's copy that reaches the B23 cache
+ * key (`candidates/service.ts`) and the inference log, so a bump that changed
+ * the prompt bytes here but left these literals behind would serve the old
+ * version's cached responses to the new version's prompts. `llm/prompts.ts`
+ * is the single owner of both version strings (B49); this module only
+ * chooses, per built-in, which of its two exported constants to wire up - it
+ * never spells a version number out itself.
  *
- * `baseline-pv2` is the one profile that does not carry `PROMPT_VERSION`. It
- * exists for a single experiment (T65): version 3 is version 2 with the
- * count-and-drop length self-check removed, and the only honest way to say what
- * that instruction is worth is to run the same puzzles under both and compare
- * slot by slot. It is `baseline` in every other field, so a paired run differs
- * in the prompt bytes and in nothing else. Delete it once the question is
- * settled; it is not a tuning knob.
+ * `baseline-pv3` is the one profile that carries `PROMPT_VERSION` (`"3"`)
+ * instead. It exists for a single experiment: version 3 is version 2 with
+ * the count-and-drop length self-check removed, and a paired follow-up
+ * measurement (72 runs, three repeats each; docs/benches/escalation-policy.md)
+ * found version 2 beats version 3 on every accuracy metric, so version 2
+ * came back as the default (T66, reverting T65's choice) while version 3
+ * stays selectable for anyone who wants to re-run the comparison. It is
+ * `baseline` in every other field, so a paired run differs in the prompt
+ * bytes and in nothing else.
  */
 export const baseline = {
   name: 'baseline',
@@ -57,15 +62,15 @@ export const baseline = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 /**
- * `baseline` with the previous prompt version (T65), for the paired measurement
- * described on the doc comment above. Every other field is `baseline`'s.
+ * `baseline` with promptVersion 3 (T66), for the paired measurement described
+ * on the doc comment above. Every other field is `baseline`'s.
  */
-export const baselinePv2 = {
-  name: 'baseline-pv2',
+export const baselinePv3 = {
+  name: 'baseline-pv3',
   tier1: 'nvidia/Nemotron-3_5-Lightning',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
@@ -84,7 +89,7 @@ export const baselinePv2 = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PAIRED_PROMPT_VERSION,
+  promptVersion: PROMPT_VERSION,
 } satisfies Profile;
 
 export const eagerEscalation = {
@@ -107,7 +112,7 @@ export const eagerEscalation = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const patient = {
@@ -130,7 +135,7 @@ export const patient = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const noRepair = {
@@ -153,7 +158,7 @@ export const noRepair = {
   repair: { enabled: false, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const tier1Only = {
@@ -176,7 +181,7 @@ export const tier1Only = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const strongOnly = {
@@ -199,7 +204,7 @@ export const strongOnly = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 2.0, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 16, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const votes3 = {
@@ -222,7 +227,7 @@ export const votes3 = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const batch1 = {
@@ -245,7 +250,7 @@ export const batch1 = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const batch2 = {
@@ -268,7 +273,7 @@ export const batch2 = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const batch3 = {
@@ -291,7 +296,7 @@ export const batch3 = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const batch5 = {
@@ -314,7 +319,7 @@ export const batch5 = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 export const batch8 = {
@@ -337,7 +342,7 @@ export const batch8 = {
   repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
   budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
   rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-  promptVersion: PROMPT_VERSION,
+  promptVersion: PAIRED_PROMPT_VERSION,
 } satisfies Profile;
 
 /**
@@ -358,7 +363,7 @@ export const batch8 = {
  */
 const BUILTINS: ReadonlyMap<string, Profile> = new Map<string, Profile>([
   ['baseline', baseline],
-  ['baseline-pv2', baselinePv2],
+  ['baseline-pv3', baselinePv3],
   ['eager-escalation', eagerEscalation],
   ['patient', patient],
   ['no-repair', noRepair],

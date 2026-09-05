@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PROMPT_VERSION } from '../llm/prompts.js';
+import { PAIRED_PROMPT_VERSION } from '../llm/prompts.js';
 
 /**
  * The raw object schema, exported separately from the refined one so that
@@ -66,10 +66,14 @@ export const ProfileObject = z.object({
     })
     .prefault({}),
   // The B23 cache key and the inference log both read this field, so it must
-  // track the prompt bytes. `llm/prompts.ts` owns the value (B49) and a bump
-  // lands with the regenerated cache in the same commit; nothing else may
-  // spell a version out.
-  promptVersion: z.string().default(PROMPT_VERSION),
+  // track the prompt bytes. `llm/prompts.ts` owns both version strings (B49)
+  // and a bump lands with the regenerated cache in the same commit; nothing
+  // else may spell a version out. The default is `PAIRED_PROMPT_VERSION`
+  // rather than `PROMPT_VERSION` (T66): a paired measurement found the
+  // newer prompt a net accuracy loss, so what a bare profile name resolves
+  // to reverted to the older one; the newer value stays selectable via
+  // `baseline-pv3` or by setting this field explicitly.
+  promptVersion: z.string().default(PAIRED_PROMPT_VERSION),
 });
 
 export const ProfileSchema = ProfileObject.refine(

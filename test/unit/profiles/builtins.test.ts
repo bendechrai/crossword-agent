@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ExitCode, isCliError } from '../../../src/cli/exit.js';
 import {
   baseline,
-  baselinePv2,
+  baselinePv3,
   batch1,
   batch2,
   batch3,
@@ -24,7 +24,7 @@ import type { Profile } from '../../../src/profiles/schema.js';
 
 const EXPECTED_NAMES = [
   'baseline',
-  'baseline-pv2',
+  'baseline-pv3',
   'eager-escalation',
   'patient',
   'no-repair',
@@ -40,7 +40,7 @@ const EXPECTED_NAMES = [
 
 /** Every built-in field that a spec test below asserts differs from `baseline`. */
 const EXPECTED_DIFFERENCE_FROM_BASELINE: Record<string, (p: Profile) => unknown> = {
-  'baseline-pv2': (p) => p.promptVersion,
+  'baseline-pv3': (p) => p.promptVersion,
   'eager-escalation': (p) => p.escalation.policy,
   patient: (p) => p.reasksPerSlot,
   'no-repair': (p) => p.repair.enabled,
@@ -191,13 +191,13 @@ describe('builtins', () => {
     expect(noRepair.repair).toEqual({ ...baseline.repair, enabled: false });
   });
 
-  // T65: the paired-measurement profile. It exists to isolate one prompt
+  // T66: the paired-measurement profile. It exists to isolate one prompt
   // instruction, so any second difference from `baseline` would confound the
   // comparison it is for.
-  it('baseline-pv2 is baseline with the previous prompt version and nothing else', () => {
-    expect(baselinePv2.promptVersion).toBe('2');
-    expect(baseline.promptVersion).toBe('3');
-    const { name: _name, promptVersion: _version, ...rest } = baselinePv2;
+  it('baseline-pv3 is baseline with promptVersion 3 and nothing else', () => {
+    expect(baselinePv3.promptVersion).toBe('3');
+    expect(baseline.promptVersion).toBe('2');
+    const { name: _name, promptVersion: _version, ...rest } = baselinePv3;
     const { name: _baselineName, promptVersion: _baselineVersion, ...baselineRest } = baseline;
     expect(rest).toEqual(baselineRest);
   });
@@ -205,7 +205,7 @@ describe('builtins', () => {
   it('every other built-in carries the default prompt version', () => {
     for (const [name, profile] of Object.entries(getBuiltins())) {
       expect(profile.promptVersion, `${name} promptVersion`).toBe(
-        name === 'baseline-pv2' ? '2' : '3',
+        name === 'baseline-pv3' ? '3' : '2',
       );
     }
   });
