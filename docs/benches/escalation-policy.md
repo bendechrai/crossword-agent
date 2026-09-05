@@ -1,3 +1,255 @@
+# Prompt version 3 versus 2: paired measurement on modern-12 (2026-09-05)
+
+Date: 2026-09-05
+Commit: e66bf2c4c9da7974126e8e1594b7aba191a3d6f5 (main)
+
+## Design
+
+**Why.** The "Canonical result" section below (2026-09-04, post T62/T63) includes a
+"Decomposition of the drop" that attributes about three quarters of a real
+slot-level regression (612 slots, 103 regressions vs 67 gains, McNemar p about
+0.006) to T63's count-and-drop self-prune, and recorded a pending decision to
+roll that half of T63 back as promptVersion 3, keeping the restated exact
+length and the clue_understood scale. That decomposition was a single-repeat,
+read-only, after-the-fact analysis, not a controlled experiment: it flagged
+"before trusting any further prompt change, run a four-arm isolation
+experiment ... measuring within-config variance first, since a single
+8-puzzle repeat cannot resolve a 4-point effect (paired puzzle sd 0.131)."
+
+**What.** promptVersion 3 (T65) was implemented exactly as recommended: T63's
+prompt with the count-and-drop self-check removed and nothing else changed
+(the restated exact length and the clue_understood scale stay). It is now the
+default `PROMPT_VERSION`. A paired profile, `baseline-pv2`, was added that is
+identical to `baseline` except it renders promptVersion 2 (the self-prune
+still present) via `PAIRED_PROMPT_VERSION`. Both profiles were run three times
+each (`--repeat 3`) against the same `sets/modern-12.json`, same commit
+(`e66bf2c`), same word list (567,657 lines,
+`data/wordlist/collaborative.txt`), giving 72 run records: 12 puzzles x 2
+profiles x 3 repeats. Because only the prompt text differs between the two
+profiles, the paired difference isolates the self-prune instruction's effect,
+holding T62's re-ask/escalation code, the search, and everything else fixed.
+
+## Command and pre-flight estimate
+
+```
+docker exec crossword-solver xw bench sets/modern-12.json --profiles baseline,baseline-pv2 --repeat 3 --max-usd 25 --concurrency 2
+```
+
+Pre-flight estimate:
+
+```
+estimate: 72 runs (12 puzzles x 2 profiles x 3 repeats) ~ $1.440000 (--max-usd 25.000000)
+```
+
+The run finished well under budget: total spend across the 72 records was
+$2.972784 (`usdCounterfactual` summed) / $2.364383 (`usdBilled` summed),
+against the $25 ceiling. Wall clock was 50 minutes 8 seconds (records span
+2026-09-05T14:23:03.476Z to 2026-09-05T15:13:11.542Z, first record start to
+last record end). Status across the 72 records: 15 `ok`, 57 `partial`, 0
+`error`. `budgetHits`: 2 (`tier2Calls`, both on `baseline-pv2`); `baseline`
+hit no budget cap. Every one of the 24 (puzzle, profile) cells carries three
+records with distinct `repeatIndex` values `{0, 1, 2}`, confirmed by script
+over all 72 records.
+
+Raw bench log: `logs/bench-prompt-v3-v2.log` (top-level, gitignored). Full
+report tables and the analysis script's output: `logs/bench-prompt-v3-v2/`
+(gitignored). The 36 records from the prior single-repeat canonical run are
+archived at `runs/modern-12-postfix-single/` (gitignored) for the sequence
+comparison below.
+
+## Noise floor
+
+The within-config noise floor is the average, across a stratum's puzzles, of
+each puzzle's sample standard deviation of letters accuracy across its three
+repeats (same puzzle, same profile, only sampling noise differs):
+
+| stratum | baseline (v3) noise floor | baseline-pv2 (v2) noise floor |
+| --- | --- | --- |
+| american (n=8) | 0.0490 | 0.0501 |
+| cryptic (n=4) | 0.0200 | 0.0735 |
+| all (n=12) | 0.0394 | 0.0579 |
+
+## Results per stratum (three repeats each, letters/words/perfect)
+
+### american (n = 8 puzzles)
+
+| profile | letters (mean over repeats) | words | perfect | USD/puzzle (counterfactual) | USD/correct word | tier-2 share |
+| --- | --- | --- | --- | --- | --- | --- |
+| baseline (v3) | 0.5207 | 0.3075 | 0.0000 | 0.032229 | 0.001362 | 0.0768 |
+| baseline-pv2 (v2) | 0.5786 | 0.3669 | 0.0000 | 0.053346 | 0.001894 | 0.1395 |
+
+### cryptic (n = 4 puzzles)
+
+| profile | letters (mean over repeats) | words | perfect | USD/puzzle (counterfactual) | USD/correct word | tier-2 share |
+| --- | --- | --- | --- | --- | --- | --- |
+| baseline (v3) | 0.0996 | 0.0170 | 0.0000 | 0.038706 | 0.077411 | 0.1492 |
+| baseline-pv2 (v2) | 0.1633 | 0.0515 | 0.0000 | 0.037875 | 0.025250 | 0.1763 |
+
+### all 12 puzzles
+
+| profile | letters (mean over repeats) | words | perfect | USD/puzzle (counterfactual) | USD/correct word | tier-2 share |
+| --- | --- | --- | --- | --- | --- | --- |
+| baseline (v3) | 0.3803 | 0.2106 | 0.0000 | 0.034388 | 0.002157 | 0.0935 |
+| baseline-pv2 (v2) | 0.4402 | 0.2617 | 0.0000 | 0.048189 | 0.002500 | 0.1478 |
+
+## Paired comparison: v3 minus v2 on letters accuracy
+
+Per puzzle, the difference of each profile's repeat-mean letters accuracy
+(mean of 3 repeats), then the mean of those per-puzzle differences.
+
+**American stratum (n = 8):** mean diff (v3 - v2) = -0.0579, paired sd =
+0.0676, paired se = 0.0239, t(7) = -2.423, 95% CI (-0.1145, -0.0014). The
+magnitude (0.0579) exceeds both profiles' noise floors on this stratum
+(0.0490 and 0.0501) and the CI excludes zero.
+
+**All 12 puzzles (n = 12):** mean diff (v3 - v2) = -0.0599, paired sd =
+0.0646, paired se = 0.0187, t(11) = -3.209, 95% CI (-0.1009, -0.0188). Again
+the magnitude exceeds both noise floors (0.0394 and 0.0579) and the CI
+excludes zero.
+
+Both results say the same thing: v3 (self-prune removed) scores lower than
+v2 (self-prune present), by an amount larger than run-to-run sampling noise.
+This is the opposite direction from what the single-repeat decomposition
+predicted.
+
+**Per-puzzle repeat-level win count** (of the 3 paired repeats, how often v2
+beat v3 on letters): v2 won 29 of 36 paired repeats across all 12 puzzles, v3
+won 7, no ties. On the american stratum specifically, v2 won 19 of 24; the
+lone puzzle where v3 won all three repeats was xd-lat2024-07-17 (the only
+american puzzle where v3 beat v2 on the repeat-mean too).
+
+## Sequence: v1 single, v2 single, v2 x3, v3 x3 (american stratum, n = 8)
+
+| stage | source | letters mean |
+| --- | --- | --- |
+| v1 single | era-test.md, pre-T62/T63, commit 5b42a96 | 0.6308 |
+| v2 single | this repo's archived post-fix run, commit f9d3b0b1, `--repeat 1` | 0.5886 |
+| v2 x3 | this run, `baseline-pv2`, commit e66bf2c, `--repeat 3` | 0.5786 |
+| v3 x3 | this run, `baseline`, commit e66bf2c, `--repeat 3` | 0.5207 |
+
+v2 single (0.5886) and v2 x3 (0.5786) agree within the v2 noise floor
+(0.0501), confirming the two v2 measurements are consistent with each other.
+v3 x3 (0.5207) is below both v2 measurements, and further from v1 single
+(0.6308) than either of them: removing the self-prune moved accuracy away
+from the pre-T63 level, not toward it.
+
+## Generation metrics that explain the difference
+
+All 12 puzzles, 3 repeats, 2181 slots per profile:
+
+| metric | baseline (v3) | baseline-pv2 (v2) |
+| --- | --- | --- |
+| truth-in-candidates share | 0.4516 | 0.4801 |
+| mean candidatesSeen | 4.442 | 2.781 |
+| zero-candidate share | 0.0156 | 0.0234 |
+| length share of rejections | 0.5795 | 0.6242 |
+| conversion rate (correct given truth present) | 0.5431 | 0.6074 |
+| tier-1 fill correctness | 0.4501 | 0.5102 |
+| re-asks (share of slots with >=1 reask) | 0.0940 | 0.1110 |
+| escalations per puzzle (mean per run) | 8.583 | 16.944 |
+| tier-2 fill correctness | 0.6071 | 0.6929 |
+| escalated-slot correctness | 0.2298 | 0.3098 |
+| completion tokens per tier-1 call | 210.91 | 119.49 |
+| cap hits | 0 | 2 |
+
+v3 does see more raw candidates per slot (4.442 vs 2.781), consistent with
+removing a filter that used to drop candidates. But truth-in-candidates share
+is slightly lower under v3 (0.4516 vs 0.4801), conversion given the truth is
+present is lower (0.5431 vs 0.6074), and tier-1 fill correctness is lower
+(0.4501 vs 0.5102): the extra candidates are not simply low-quality noise
+diluting a fixed pool of otherwise-unchanged rankings, since ranking and
+selection quality among that larger pool is also worse under v3.
+
+The clearest mechanical difference is escalation. v2 escalates to tier-2
+roughly twice as often per puzzle as v3 (16.944 vs 8.583 escalations/puzzle),
+and v2 also has a higher zero-candidate share (0.0234 vs 0.0156) despite
+seeing fewer raw candidates per call. Tier-2 is the most accurate source
+under both profiles (0.693 correct for v2's tier-2 fills, 0.607 for v3's),
+and escalated slots convert better under v2 too (0.310 vs 0.230). This is
+consistent with the self-prune (present in v2, absent in v3) causing more
+tier-1 attempts to come back thin or unconfident, which fires escalation to
+tier-2 more often, and tier-2's accuracy advantage then applies to a larger
+share of v2's slots than v3's.
+
+## Cost per puzzle
+
+`usdCounterfactual` per puzzle, all 12 puzzles: baseline (v3) $0.034388,
+baseline-pv2 (v2) $0.048189 - v2 costs about 40% more per puzzle, driven by
+its higher escalation rate. But `usdCounterfactual` per correct word is
+close and actually favors v3 slightly ($0.002157 vs $0.002500), purely
+because v3 both escalates less and gets fewer words right; judged on cost per
+correct word alone without accuracy alongside it, that number would
+misleadingly favor the worse-performing arm.
+
+## Verdict
+
+**v3 does not recover the pre-T63 level.** On the american stratum, letters
+accuracy runs v1 single 0.6308, v2 single 0.5886, v2 x3 0.5786, v3 x3 0.5207
+- v3 is farther from v1 than either v2 measurement, not closer. The paired
+v3-minus-v2 difference clears the noise floor on both the american stratum
+(-0.0579, 95% CI -0.1145 to -0.0014, noise floor about 0.049-0.050) and all
+12 puzzles (-0.0599, 95% CI -0.1009 to -0.0188, noise floor about
+0.039-0.058): this is a real, measured difference, not sampling noise, and it
+runs opposite to what the single-repeat decomposition predicted.
+
+The earlier attribution - that the self-prune was the primary cause of the
+T63 regression, and that removing it (v3) would recover accuracy - is not
+supported by this paired measurement, and should be treated as wrong, or at
+best incomplete. v2 (self-prune present) beats v3 (self-prune removed) on
+every accuracy metric measured here: letters, words, truth-in-candidates
+share, conversion rate, tier-1 fill correctness, and tier-2 fill correctness,
+at a cost increase (about 40% more per puzzle) that is more than offset by
+the accuracy gain. The data point instead to escalation frequency as the
+mechanism: v2's self-prune appears to make tier-1 look less confident on more
+slots, so those slots escalate to tier-2 more often, and tier-2 is the most
+accurate source available under either prompt. Removing the self-prune (v3)
+leaves tier-1 with more raw candidates but does not make tier-1 itself more
+accurate, and it escalates less, forfeiting tier-2's accuracy advantage on a
+larger share of slots. This mechanism is inferred from the correlation
+between self-prune presence, escalation rate, and accuracy above; it is not
+directly instrumented, and this measurement does not explain why a
+token-matching self-check would change escalation frequency and tier-1
+ranking quality, only that it correlates with both here.
+
+Neither v2 nor v3 recovers the v1 single-repeat level (0.6308): the gap
+between v2 x3 (0.5786) and v1 (0.6308), about -0.052, remains unexplained by
+the self-prune question this measurement was designed to answer, and is
+still open. The most likely remaining candidates are the restated-exact-length
+and clue_understood-scale wording that both v2 and v3 carry and v1 does not,
+or an interaction with T62's re-ask/escalation changes; this measurement does
+not isolate either.
+
+**Recommendation.** Revert the default `PROMPT_VERSION` to '2' (restore the
+self-prune) until a further run explains the escalation-frequency link: on
+this paired, noise-floor-cleared measurement, v2 outperforms v3 on every
+accuracy metric at a cost increase smaller than its accuracy gain justifies.
+Before trusting a further prompt change, run a third arm using the v1 prompt
+text together with T62's re-ask/escalation code, `--repeat 3` on the same 12
+puzzles, to separate the prompt-wording effect from T62's contribution to the
+remaining v1-vs-v2 gap.
+
+## Caveats
+
+- **Only the prompt text differs between the two arms.** `profiles/schema.ts`
+  fields, policy code, and the search are identical between `baseline` and
+  `baseline-pv2`; only `promptVersion` (and therefore the rendered prompt
+  bytes and the cache key) differs. This isolates the self-prune instruction
+  specifically, not the full T62/T63 change set.
+- **v1 single has no retained per-puzzle records.** The v1 (pre-T62/T63)
+  measurement used in the sequence comparison above is era-test.md's reported
+  aggregate (0.6308 on the american stratum, `--repeat 1`); that run's raw
+  records are not available in this repository, so no per-puzzle table or
+  paired statistic against v1 could be computed here, only the v2 and v3 x3
+  measurements are paired at the puzzle level.
+- **`baseline-pv2` hit the tier2Calls budget cap twice**; `baseline` hit no
+  cap in this run. Both profiles share the same cap value, so the cap
+  difference is a consequence of v2 escalating more, not a differently
+  configured cap.
+- Full per-profile, per-stratum, per-tier and per-puzzle report tables, the
+  analysis script's markdown output, and the raw bench log are archived under
+  `logs/bench-prompt-v3-v2/` and `logs/bench-prompt-v3-v2.log`
+  (gitignored).
+
 # Canonical result on modern-12 (2026-09-04, post T62/T63)
 
 Date: 2026-09-04
