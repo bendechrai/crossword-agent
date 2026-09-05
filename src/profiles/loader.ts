@@ -36,6 +36,7 @@ const NESTED_GROUP_KEYS: readonly string[] = [
   'repair',
   'budget',
   'rateLimit',
+  'reasoning',
 ];
 
 /**
@@ -53,6 +54,7 @@ const NESTED_GROUP_ALLOWED_KEYS: Readonly<Record<string, ReadonlySet<string>>> =
   repair: new Set(['enabled', 'maxCalls', 'maxEditDistance']),
   budget: new Set(['usd', 'tokens', 'wallMs']),
   rateLimit: new Set(['rpsFraction', 'maxConcurrencyTier1', 'maxConcurrencyTier2']),
+  reasoning: new Set(['constrainedEffort', 'constrainedMaxTokens']),
 };
 
 /**
@@ -70,6 +72,8 @@ const PROFILE_FILE_KEYS = new Set<string>([
   'samples',
   'batchSize',
   'reasksPerSlot',
+  'constrainedSamples',
+  'reasoning',
   'sampling',
   'escalation',
   'search',

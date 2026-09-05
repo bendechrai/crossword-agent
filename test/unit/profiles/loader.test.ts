@@ -94,6 +94,28 @@ describe('resolveProfile - built-in and file resolution', () => {
     expect(error.message).toContain('search.maxBactracks');
   });
 
+  // T72: T71 added `reasoning` and `constrainedSamples` to ProfileSchema, but
+  // the loader's whitelists didn't know them yet, so a profile file setting
+  // either was rejected as an unknown key. These two cases cover that the
+  // fields now resolve, and that a typo inside `reasoning` is still caught.
+  it('a profile file setting reasoning.constrainedEffort and constrainedSamples resolves (T72)', async () => {
+    const { profile } = await resolveProfile({
+      profile: fixture('extends-strong-only-reasoning.json'),
+    });
+    expect(profile.reasoning).toEqual({ constrainedEffort: 'medium', constrainedMaxTokens: 2048 });
+    expect(profile.constrainedSamples).toBe(3);
+    // The rest of the extended built-in is untouched by the overlay.
+    expect(profile.tier1).toBe(strongOnly.tier1);
+  });
+
+  it('a typo inside the reasoning group of a profile file is a usage error naming "reasoning.key" (T72)', async () => {
+    const error = await expectCliError(
+      () => resolveProfile({ profile: fixture('nested-unknown-key-reasoning.json') }),
+      ExitCode.USAGE,
+    );
+    expect(error.message).toContain('reasoning.constrainedEfort');
+  });
+
   it('a profile spec that is neither a built-in nor an existing file is a usage error', async () => {
     await expectCliError(() => resolveProfile({ profile: 'no-such-profile-or-file' }), ExitCode.USAGE);
   });

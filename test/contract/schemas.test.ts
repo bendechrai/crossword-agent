@@ -10,6 +10,7 @@ import * as ajvFormatsModule from 'ajv-formats';
 import type { FormatsPlugin } from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
 
+import { maxAccuracy } from '../../src/profiles/builtins.js';
 import { ProfileSchema, type Profile } from '../../src/profiles/schema.js';
 import type { NormalisedPuzzleFile, PuzzleIndexRow } from '../../src/puzzle/types.js';
 import type { RunRecord } from '../../src/eval/types.js';
@@ -295,5 +296,14 @@ describe('run-record.schema.json', () => {
 
   it("embeds a profile that round-trips through the profile schema", () => {
     expect(ProfileSchema.parse(record.profile)).toEqual(baseline);
+  });
+
+  // T72: T71 added `reasoning` and `constrainedSamples` to ProfileSchema, and
+  // the max-accuracy built-in sets both; a run record carrying that profile
+  // must still validate against the published schema (it did not until this
+  // task added the two fields to $defs.profile below).
+  it('validates a run record whose profile is the max-accuracy built-in (T72)', () => {
+    const withMaxAccuracy: RunRecord = { ...record, profile: maxAccuracy };
+    expect(validate(withMaxAccuracy), JSON.stringify(validate.errors)).toBe(true);
   });
 });
