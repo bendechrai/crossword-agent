@@ -1574,6 +1574,18 @@ Starts once every Wave 3 task is merged.
 - Acceptance: 1. Unit tests for aggregate(): a fixture with two models and mixed strata yields the expected shares, ranks and cost. 2. The estimate formula test: slots x models x assumed tokens x price from a fixture catalogue. 3. Refusal path test: estimate above `--max-usd` without `--yes` exits with USAGE and no transport call (stub). 4. A dry run with `--models nvidia/Nemotron-3_5-Lightning --set test/fixtures/sets/tiny.json --offline` against the committed synthetic cache produces a summary from the cache alone at zero spend (the seed keys for the default profile exist in test/fixtures/cache). The originally drafted target of truth-in-candidates 1.0 is not attainable and was not asserted: the committed promptVersion-2 seed responses miss the truth on 3 of the 34 slots (measured 0.9118 overall, 0.9091 on synthetic-5x5 and 0.9130 on synthetic-7x7), because those fixtures were captured for the solver's end-to-end replay, where the re-ask and escalation passes recover those slots. 5. preflight passes. 6. docs/benches/README.md describes the screen and its decision rule; docs/spec.md points at it.
 - Out of scope: running the screen against Nebius (the orchestrator does that after merge); any change to the candidate service or router.
 
+### T68: Router: per-model reasoning-off value with a fallback for providers that reject none
+- Workstream: E
+- Model: sonnet
+- Depends on: T49, T58
+- Owns: src/llm/tierRouter.ts, src/llm/client.ts (only the 400 retry path), test/unit/llm/tierRouter.test.ts, test/unit/llm/client.test.ts (additions)
+- Reads (must not edit): src/llm/pricing.ts, models.json, docs/spikes/tier1-reliability.md
+- Spec sections: Candidate service (tier routing)
+- Deliverable: The recall screen (T67) could not run `openai/gpt-oss-120b`: Nebius returned `HTTP 400: Harmony does not support reasoning_effort='none'` because the router sends `reasoning_effort: "none"` to every reasoning-capable model. Fix in two layers. (1) `tierRouter.ts`: a small per-model override table for the reasoning-off value (default `'none'`; `openai/gpt-oss-120b` -> `'low'`), keyed by model id, exported and unit-tested, with a doc comment saying Harmony-format models accept only low/medium/high. (2) `client.ts`: when a request carrying `reasoning_effort` gets an HTTP 400 whose body mentions `reasoning_effort`, retry ONCE with `'low'` (do not loop), emit a warning through the existing log path naming the model, and record the retry in the inference log record (the substituted request logged as its own attempt); if the retry also fails, surface the provider error as before. Unit tests with a stub HTTP server: the override table maps gpt-oss to low; a model with the default value gets none; the 400-with-reasoning_effort path retries exactly once with low and succeeds; a 400 without that text does not retry.
+- Decisions baked in: no cache-key change (the parameter is not a key field); the retry substitutes only the `reasoning_effort` value; nothing else about routing changes.
+- Acceptance: 1. tierRouter tests for the override table and default. 2. client tests for the retry-once path and the no-retry path. 3. preflight passes. 4. Spec sentence and spike note updated.
+- Out of scope: running the screen for gpt-oss (the orchestrator does that after merge).
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1648,10 +1660,11 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T65 | promptVersion 3: drop the length self-prune; v2 selectable | 6 | E | opus | T63 | llm/prompts.ts, profiles (promptVersion field, baseline-pv2 built-in), tests, fixture refresh |
 | T66 | Revert default promptVersion to 2; keep 3 selectable | 6 | E | sonnet | T65 | profiles schema default, builtins, tests, fixture regeneration, spec sentence |
 | T67 | Seed-only candidate recall eval across models | 6 | I | opus | T34,T47,T61 | scripts/eval-recall.ts, src/eval/recall.ts, tests, docs/benches/README.md paragraph |
+| T68 | Router: per-model reasoning-off value with fallback | 6 | E | sonnet | T49,T58 | llm/tierRouter.ts, llm/client.ts (retry path), tests, spike doc addendum |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 9. Total 68, of which 66 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 10. Total 69, of which 67 are in v1 (M1-M5).
 
-Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 43.
+Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 44.
 
 Network-touching tasks: **T49** and **T50** only. Every other task must pass with `globalThis.fetch` stubbed to throw.
 
