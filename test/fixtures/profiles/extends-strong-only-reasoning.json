@@ -1,0 +1,6 @@
+{
+  "name": "file-sets-reasoning-and-samples",
+  "extends": "strong-only",
+  "reasoning": { "constrainedEffort": "medium" },
+  "constrainedSamples": 3
+}

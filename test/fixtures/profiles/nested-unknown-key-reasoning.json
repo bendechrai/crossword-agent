@@ -1,0 +1,5 @@
+{
+  "name": "typo-reasoning",
+  "extends": "strong-only",
+  "reasoning": { "constrainedEfort": "medium" }
+}

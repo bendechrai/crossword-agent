@@ -225,6 +225,16 @@
         "samples": { "type": "integer", "minimum": 1, "maximum": 5 },
         "batchSize": { "type": "integer", "minimum": 1, "maximum": 8 },
         "reasksPerSlot": { "type": "integer", "minimum": 0 },
+        "constrainedSamples": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "reasoning": {
+          "type": "object",
+          "properties": {
+            "constrainedEffort": { "enum": ["none", "low", "medium", "high"] },
+            "constrainedMaxTokens": { "type": "integer", "minimum": 64, "maximum": 32768 }
+          },
+          "required": ["constrainedEffort", "constrainedMaxTokens"],
+          "additionalProperties": false
+        },
         "sampling": {
           "type": "object",
           "properties": {
