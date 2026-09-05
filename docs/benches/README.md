@@ -100,10 +100,4 @@ the set gave no american slots cannot be ranked by this rule and sorts after
 every model that can be.
 
 **Results:**
-See `docs/benches/recall-screen.md` (screen run 2026-09-05, `sets/modern-12.json`, commit
-`5b312a03e12b6da261df3f26dd478420223f3954`). On the american stratum the top three by
-truth-in-candidates share are deepseek-ai/DeepSeek-V4-Pro, zai-org/GLM-5.1 and
-deepseek-ai/DeepSeek-V4-Flash-0731; the current tier-1, nvidia/Nemotron-3_5-Lightning,
-ranks 7th of 8 and carries anyway per the rule above. openai/gpt-oss-120b and
-nvidia/Nemotron-3-Nano-Omni could not be screened (a router reasoning-off incompatibility
-and a provider-side outage respectively; see the linked document for detail).
+See `docs/benches/recall-screen.md` (screen run 2026-09-05, `sets/modern-12.json`, nine models screened including openai/gpt-oss-120b after the T68 router fix). On the american stratum the top three by truth-in-candidates share remain deepseek-ai/DeepSeek-V4-Pro, zai-org/GLM-5.1 and deepseek-ai/DeepSeek-V4-Flash-0731; openai/gpt-oss-120b ranks 4th of 9. The current tier-1, nvidia/Nemotron-3_5-Lightning, ranks 8th of 9 and carries anyway per the rule above; nvidia/Nemotron-3-Nano-Omni produced no completed calls (see the linked document for detail).
