@@ -1787,7 +1787,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T67 | done | b3d335a | wave 6 |
 | T68 | done | 9a6965e | wave 6 |
 | T69 | done | ef9b24d | wave 6 |
-| T70 | in progress | - | (hygiene after tier-1 swap) |
+| T70 | done | bbbb821 | wave 6; pricing test key-set edit ratified |
 
 ## Blocked
 
