@@ -11,7 +11,12 @@ vi.mock('../../../src/llm/rateLimiter.js', () => ({ getLimiter: vi.fn() }));
 import type { CandidateRequest } from '../../../src/candidates/types.js';
 import { capabilitiesOf } from '../../../src/llm/pricing.js';
 import { getLimiter } from '../../../src/llm/rateLimiter.js';
-import { REASONING_OFF_PARAM, REASONING_OFF_VALUE, route } from '../../../src/llm/tierRouter.js';
+import {
+  REASONING_OFF_PARAM,
+  REASONING_OFF_VALUE,
+  reasoningOffValueFor,
+  route,
+} from '../../../src/llm/tierRouter.js';
 import type { ModelCapabilities } from '../../../src/llm/types.js';
 import { ProfileObject, type Profile } from '../../../src/profiles/schema.js';
 
@@ -171,6 +176,39 @@ describe('route: reasoning-off parameter (B41 as amended by T58)', () => {
     const result = route(baseRequest({ tier: 2, purpose: 'repair' }), profile);
 
     expect(result.request.extra?.[REASONING_OFF_PARAM]).toBeUndefined();
+  });
+});
+
+describe('route: per-model reasoning-off value with a fallback (T68)', () => {
+  it('reasoningOffValueFor: the override table maps openai/gpt-oss-120b to "low"', () => {
+    expect(reasoningOffValueFor('openai/gpt-oss-120b')).toBe('low');
+  });
+
+  it('reasoningOffValueFor: a model absent from the override table gets the default "none"', () => {
+    expect(reasoningOffValueFor('nvidia/Nemotron-3_5-Lightning')).toBe(REASONING_OFF_VALUE);
+    expect(reasoningOffValueFor('catalogue/some-other-model')).toBe('none');
+  });
+
+  it('route: sends the overridden value "low" for openai/gpt-oss-120b as tier 1 (Harmony rejects "none")', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+    const profile = baseProfile({ tier1: 'openai/gpt-oss-120b' });
+
+    const result = route(baseRequest({ tier: 1, purpose: 'seed' }), profile);
+
+    expect(result.request.extra).toEqual(
+      expect.objectContaining({ [REASONING_OFF_PARAM]: 'low' }),
+    );
+  });
+
+  it('route: sends the default value "none" for a reasoning model with no override', () => {
+    vi.mocked(capabilitiesOf).mockReturnValue(caps({ supportsReasoning: true }));
+    const profile = baseProfile({ tier1: 'catalogue/reasoning-model' });
+
+    const result = route(baseRequest({ tier: 1, purpose: 'seed' }), profile);
+
+    expect(result.request.extra).toEqual(
+      expect.objectContaining({ [REASONING_OFF_PARAM]: REASONING_OFF_VALUE }),
+    );
   });
 });
 

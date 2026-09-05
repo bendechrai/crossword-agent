@@ -30,6 +30,32 @@ export const REASONING_OFF_PARAM = 'reasoning_effort';
  */
 export const REASONING_OFF_VALUE = 'none';
 
+/**
+ * T68 (docs/plan.md "Router: per-model reasoning-off value with a fallback
+ * for providers that reject none"): `REASONING_OFF_VALUE` ("none") is not
+ * universally accepted. `openai/gpt-oss-120b` uses OpenAI's Harmony response
+ * format, whose reasoning levels are `low` | `medium` | `high` only - there
+ * is no `none` - so Nebius rejects `{"reasoning_effort":"none"}` for it with
+ * `HTTP 400: Harmony does not support reasoning_effort='none'`. Keyed by
+ * model id (never inferred from the id string, per B9's "by capability, not
+ * by model name" rule elsewhere in this file - the value here is looked up,
+ * not pattern-matched); a model absent from this table gets
+ * `REASONING_OFF_VALUE`. See `reasoningOffValueFor` below and
+ * `src/llm/client.ts`'s 400 retry path, which is the runtime fallback for a
+ * Harmony-format model that is not yet listed here.
+ */
+const REASONING_OFF_VALUE_OVERRIDES: Readonly<Record<string, string>> = {
+  'openai/gpt-oss-120b': 'low',
+};
+
+/**
+ * The reasoning-off value to send for `model`: the per-model override when
+ * one is known, otherwise `REASONING_OFF_VALUE` ("none").
+ */
+export function reasoningOffValueFor(model: string): string {
+  return REASONING_OFF_VALUE_OVERRIDES[model] ?? REASONING_OFF_VALUE;
+}
+
 export interface RoutedRequest {
   request: LlmRequest;
   model: string;
@@ -159,7 +185,7 @@ export function route(req: CandidateRequest, profile: Profile, opts: RouteOption
 
   const extra: Record<string, unknown> = {};
   if (capabilities.supportsReasoning && reasoningOffApplies(req)) {
-    extra[REASONING_OFF_PARAM] = REASONING_OFF_VALUE;
+    extra[REASONING_OFF_PARAM] = reasoningOffValueFor(model);
   }
   // B38: `--seed` reaches the provider only when the catalogue advertises it.
   if (capabilities.supportsSeed && opts.seed !== undefined) {
