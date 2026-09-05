@@ -1586,6 +1586,18 @@ Starts once every Wave 3 task is merged.
 - Acceptance: 1. tierRouter tests for the override table and default. 2. client tests for the retry-once path and the no-retry path. 3. preflight passes. 4. Spec sentence and spike note updated.
 - Out of scope: running the screen for gpt-oss (the orchestrator does that after merge).
 
+### T69: Make DeepSeek-V4-Flash the default tier-1 model; refresh fixtures
+- Workstream: E
+- Model: sonnet
+- Depends on: T65, T66, T67
+- Owns: src/profiles/builtins.ts, test/unit/profiles/builtins.test.ts, test/fixtures/cache/** (refresh), test/fixtures/runs/** (refresh); pre-authorised: docs/plan.md (this block, its index row and the Counts line), src/profiles/schema.ts (tier1 default only), test/unit/profiles/schema.test.ts, any other test pinning the tier-1 model id as a default assertion, docs/model-selection.md (a dated "Decision revised" paragraph under Decision), docs/spec.md (one Decisions log row and the Strategy profiles sentence naming the tier-1 default), docs/benches/README.md (one sentence).
+- Reads (must not edit): docs/benches/model-comparison.md, docs/benches/recall-screen.md, src/llm/tierRouter.ts, src/llm/pricing.ts, models.json
+- Spec sections: Strategy profiles; Testing
+- Deliverable: The recall screen and the puzzle-level bench (docs/benches) showed deepseek-ai/DeepSeek-V4-Flash-0731 as tier 1 scores 0.80 letters on the American stratum against 0.58 for nvidia/Nemotron-3_5-Lightning, winning 24 of 24 paired repeats at half the cost per puzzle. Make it the default: ProfileSchema's tier1 default and every built-in's tier1 become deepseek-ai/DeepSeek-V4-Flash-0731, including tier1-only (the default tier 1 with no escalation); strong-only keeps deepseek-ai/DeepSeek-V4-Pro for both tiers; tier2 stays deepseek-ai/DeepSeek-V4-Pro everywhere. Confirmed by reading tierRouter.ts: Flash advertises both `reasoning` and `structured_outputs` in models.json, so the router sends `reasoning_effort: "none"` (capability-gated, same code path every model uses) and `response_format` rather than an inline schema - no router change needed. Flash's models.json limits (3,000 RPM, 1,000,000 TPM) are well above the schema's `maxConcurrencyTier1: 8` default, so no rate-limit tuning is needed or done here. Refresh the committed synthetic cache and snapshots under the new default (live refresh once, then FIXTURES_REFRESH_OFFLINE_ONLY=1; three fresh --network none replays identical; both fixtures strict; report accuracy and candidatesSeen before and after; accuracy must stay 1.0/1.0, and if it does not, report the slot and stop rather than re-rolling). Prune promptVersion or model cache entries that no test replays any more only if the cache contract test demands it; otherwise leave old entries (state the count). Docs: docs/model-selection.md gets a dated "Decision revised (2026-09-05)" paragraph under its Decision section stating the new pair and pointing at the two bench docs; docs/spec.md gets a Decisions log row and the tier-1 default sentence updated; docs/benches/README.md one sentence.
+- Decisions baked in: tier 1 = DeepSeek-V4-Flash-0731, tier 2 = DeepSeek-V4-Pro; promptVersion stays 2; no router or policy change; the old tier-1 model remains selectable by writing tier1 in a profile file.
+- Acceptance: 1. ProfileSchema.parse({name:'x'}).tier1 is the Flash id; every built-in except strong-only carries it as tier1; strong-only unchanged. 2. Tests that pinned the old id are updated and pass. 3. Fixtures refreshed: strict replay, 1.0/1.0 on both synthetic fixtures, three-run proof, candidatesSeen reported before/after. 4. preflight passes. 5. The three docs carry the revised decision.
+- Out of scope: bench runs; rate-limit tuning; prompt changes.
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1661,8 +1673,9 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T66 | Revert default promptVersion to 2; keep 3 selectable | 6 | E | sonnet | T65 | profiles schema default, builtins, tests, fixture regeneration, spec sentence |
 | T67 | Seed-only candidate recall eval across models | 6 | I | opus | T34,T47,T61 | scripts/eval-recall.ts, src/eval/recall.ts, tests, docs/benches/README.md paragraph |
 | T68 | Router: per-model reasoning-off value with fallback | 6 | E | sonnet | T49,T58 | llm/tierRouter.ts, llm/client.ts (retry path), tests, spike doc addendum |
+| T69 | Make DeepSeek-V4-Flash the default tier-1 model; refresh fixtures | 6 | E | sonnet | T65,T66,T67 | profiles schema default and builtins, tests, fixture cache and snapshots, model-selection doc, spec decision row |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 10. Total 69, of which 67 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 11. Total 70, of which 68 are in v1 (M1-M5).
 
 Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 44.
 

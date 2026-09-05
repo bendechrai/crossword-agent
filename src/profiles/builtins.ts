@@ -15,6 +15,20 @@ import type { Profile } from './schema.js';
  * a 15x15, which is what the algorithms doc's "start at 15" was aiming at).
  * `tier1-only` keeps 0, which is what makes it tier-1 only.
  *
+ * `tier1` is `deepseek-ai/DeepSeek-V4-Flash-0731` on every built-in below
+ * except `strong-only` (T69, replacing `nvidia/Nemotron-3_5-Lightning`):
+ * the puzzle-level bench (docs/benches/model-comparison.md) measured 0.80
+ * letters accuracy on the american stratum against 0.58 for the prior
+ * default, winning 24 of 24 paired repeats at about half the per-puzzle
+ * cost (see also docs/benches/recall-screen.md, the seed-only screen that
+ * shortlisted it). `tier1-only`'s tier1 is therefore "the default tier 1
+ * with no escalation", not a fixed reference model; `strong-only` is
+ * unaffected, since it already ran `deepseek-ai/DeepSeek-V4-Pro` for both
+ * tiers. `src/llm/tierRouter.ts` selects the reasoning-off parameter and
+ * `response_format` by advertised capability, not by model name, so this
+ * swap needed no router change: `models.json` lists Flash as advertising
+ * both `reasoning` and `structured_outputs`, same as the model it replaces.
+ *
  * Every field is written out on every profile below (not spread from
  * `baseline` with overrides), so a reader never has to mentally apply a diff
  * to see what a profile actually does. The batch family is written out as
@@ -44,7 +58,7 @@ import type { Profile } from './schema.js';
  */
 export const baseline = {
   name: 'baseline',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -71,7 +85,7 @@ export const baseline = {
  */
 export const baselinePv3 = {
   name: 'baseline-pv3',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -94,7 +108,7 @@ export const baselinePv3 = {
 
 export const eagerEscalation = {
   name: 'eager-escalation',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -117,7 +131,7 @@ export const eagerEscalation = {
 
 export const patient = {
   name: 'patient',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -140,7 +154,7 @@ export const patient = {
 
 export const noRepair = {
   name: 'no-repair',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -163,7 +177,7 @@ export const noRepair = {
 
 export const tier1Only = {
   name: 'tier1-only',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -209,7 +223,7 @@ export const strongOnly = {
 
 export const votes3 = {
   name: 'votes3',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'votes',
@@ -232,7 +246,7 @@ export const votes3 = {
 
 export const batch1 = {
   name: 'batch1',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -255,7 +269,7 @@ export const batch1 = {
 
 export const batch2 = {
   name: 'batch2',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -278,7 +292,7 @@ export const batch2 = {
 
 export const batch3 = {
   name: 'batch3',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -301,7 +315,7 @@ export const batch3 = {
 
 export const batch5 = {
   name: 'batch5',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',
@@ -324,7 +338,7 @@ export const batch5 = {
 
 export const batch8 = {
   name: 'batch8',
-  tier1: 'nvidia/Nemotron-3_5-Lightning',
+  tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
   tier2: 'deepseek-ai/DeepSeek-V4-Pro',
   candidatesPerAsk: 10,
   calibration: 'rank',

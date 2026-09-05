@@ -14,7 +14,13 @@ import { PAIRED_PROMPT_VERSION } from '../llm/prompts.js';
  */
 export const ProfileObject = z.object({
   name: z.string(),
-  tier1: z.string().default('nvidia/Nemotron-3_5-Lightning'),
+  // T69: the puzzle-level bench (docs/benches/model-comparison.md) found
+  // deepseek-ai/DeepSeek-V4-Flash-0731 beats the prior default
+  // (nvidia/Nemotron-3_5-Lightning) on letters accuracy on the american
+  // stratum (0.80 vs 0.58) at about half the cost per puzzle, winning 24
+  // of 24 paired repeats; see also docs/benches/recall-screen.md. The old
+  // model stays selectable by writing tier1 explicitly in a profile file.
+  tier1: z.string().default('deepseek-ai/DeepSeek-V4-Flash-0731'),
   tier2: z.string().default('deepseek-ai/DeepSeek-V4-Pro'),
   candidatesPerAsk: z.number().int().min(1).max(25).default(10),
   calibration: z.enum(['rank', 'votes', 'blend']).default('rank'),

@@ -97,7 +97,7 @@ describe('builtins', () => {
 
     const second = getBuiltins();
     const secondBaseline = second['baseline'];
-    expect(secondBaseline?.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(secondBaseline?.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
     expect(secondBaseline?.sampling.temperature).toBe(0.2);
     expect(baseline.sampling.temperature).toBe(0.2);
   });
@@ -107,7 +107,7 @@ describe('builtins', () => {
     a.tier1 = 'mutated';
     a.sampling.temperature = 1.9;
     const b = getBuiltin('baseline');
-    expect(b.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(b.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
     expect(b.sampling.temperature).toBe(0.2);
     expect(baseline.sampling.temperature).toBe(0.2);
   });
@@ -233,6 +233,24 @@ describe('builtins', () => {
   it('strong-only raises tier1 to the strong model and the budget', () => {
     expect(strongOnly.tier1).toBe('deepseek-ai/DeepSeek-V4-Pro');
     expect(strongOnly.budget.usd).toBe(2.0);
+  });
+
+  // T69: the puzzle-level bench (docs/benches/model-comparison.md) found
+  // deepseek-ai/DeepSeek-V4-Flash-0731 beats the prior tier-1 default on
+  // letters accuracy (0.80 vs 0.58, american stratum) at about half the
+  // cost, winning 24 of 24 paired repeats. `tier1-only` carries it too:
+  // that built-in is "the default tier 1 with no escalation", not a fixed
+  // reference model, so its tier1 tracks the default like every other
+  // built-in. `strong-only` is the sole exception, since it already runs
+  // the strong model for both tiers.
+  it('carries the T69 tier-1 default (DeepSeek-V4-Flash-0731) everywhere except strong-only', () => {
+    expect(baseline.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
+    expect(tier1Only.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
+    for (const [name, profile] of Object.entries(getBuiltins())) {
+      expect(profile.tier1, `${name} tier1`).toBe(
+        name === 'strong-only' ? 'deepseek-ai/DeepSeek-V4-Pro' : 'deepseek-ai/DeepSeek-V4-Flash-0731',
+      );
+    }
   });
 
   it('votes3 has calibration "votes", samples 3, and sampling.temperature 0.7 (B22 refine)', () => {

@@ -132,3 +132,8 @@ to 0.2861, t(7) = 8.111). It closes about 75% of the letters-accuracy gap
 between the tier1-only floor and the strong-only ceiling at about 14% of the
 ceiling's per-puzzle cost. Recommendation: swap the tier-1 default to
 deepseek-ai/DeepSeek-V4-Flash-0731.
+
+T69 applied this recommendation: `ProfileSchema`'s `tier1` default and every
+built-in except `strong-only` now carry `deepseek-ai/DeepSeek-V4-Flash-0731`,
+with the prior default still selectable by naming it explicitly in a profile
+file.

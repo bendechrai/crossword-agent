@@ -120,7 +120,7 @@ describe('resolveProfile - five-layer precedence (Acceptance 3)', () => {
   // than the last, each layer winning with its own distinct value.
   it('layer 1: zod defaults win when nothing else sets the field', async () => {
     const { profile } = await resolveProfile({ profile: fixture('full-profile-no-tier1.json') });
-    expect(profile.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(profile.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
   });
 
   it('layer 2: a named built-in wins over the zod default', async () => {
@@ -140,14 +140,14 @@ describe('resolveProfile - five-layer precedence (Acceptance 3)', () => {
     expect(withConfig.profile.tier1).toBe('deepseek-ai/DeepSeek-V4-Pro');
 
     const withoutConfig = await resolveProfile({});
-    expect(withoutConfig.profile.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(withoutConfig.profile.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
 
     // An explicit --profile always wins over config.defaultProfile.
     const explicitWins = await resolveProfile({
       profile: 'baseline',
       config: { defaultProfile: 'strong-only' },
     });
-    expect(explicitWins.profile.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(explicitWins.profile.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
   });
 
   it('layer 5: an explicit CLI override wins over everything below it', async () => {
@@ -180,7 +180,7 @@ describe('resolveProfile - CLI overrides merge nested groups one level deep', ()
       profile: fixture('full-profile-no-tier1.json'),
       overrides,
     });
-    expect(profile.tier1).toBe('nvidia/Nemotron-3_5-Lightning');
+    expect(profile.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
   });
 
   it('an explicit undefined inside a nested-group override never discards a value the base already set', async () => {
