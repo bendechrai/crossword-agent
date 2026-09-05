@@ -9,6 +9,7 @@ import type { SolveCommandOverrides } from '../src/cli/solve.js';
 import type { RunRecord } from '../src/eval/types.js';
 import { atomicWriteFile, repoRoot, resolveCacheDir } from '../src/util/fs.js';
 import { log, setLogLevel } from '../src/util/log.js';
+import { resolveProfile } from '../src/profiles/loader.js';
 
 /**
  * T50 (B49), narrowed by T56: a network task, run deliberately and never in
@@ -364,9 +365,10 @@ async function main(): Promise<void> {
         'no spend; snapshots and bounds are re-captured from the committed cache alone.',
     );
   }
+  const resolved = await resolveProfile({ profile: 'baseline' });
   log.warn(
-    'fixtures-refresh: promptVersion is frozen at "1" for v1 (B49) - a future bump invalidates ' +
-      'every entry in this cache and must land with a regenerated cache in the same commit.',
+    `fixtures-refresh: baseline profile has promptVersion "${resolved.profile.promptVersion}"; ` +
+      'changing it invalidates every entry in this cache and must land with a regenerated cache in the same commit.',
   );
 
   // Start from whatever bounds.json already has on disk (e.g. from an

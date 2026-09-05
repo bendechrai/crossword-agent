@@ -73,4 +73,4 @@ The benchmark this document's "Next step" called for has now been run, in two st
 
 ## Next step
 
-The benchmark across all six shortlisted models remains worth running to validate the escalation strategy, measuring accuracy and cost per solved clue.
+The recall screen (docs/benches/recall-screen.md) and puzzle-level bench (docs/benches/model-comparison.md) were run on 2026-09-05, confirming that deepseek-ai/DeepSeek-V4-Flash-0731 was the correct tier-1 choice. The model pair has been revised accordingly.

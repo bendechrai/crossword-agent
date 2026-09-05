@@ -10,6 +10,7 @@ const PRICING_SOURCE_PATH = fileURLToPath(new URL('../../../src/llm/pricing.ts',
 
 const NEMOTRON = 'nvidia/Nemotron-3_5-Lightning';
 const DEEPSEEK = 'deepseek-ai/DeepSeek-V4-Pro';
+const FLASH = 'deepseek-ai/DeepSeek-V4-Flash-0731';
 
 describe('capabilitiesOf (against the real models.json)', () => {
   it('reports Nemotron as reasoning-capable but without structured outputs (acceptance 1)', () => {
@@ -94,9 +95,9 @@ describe('priceOf', () => {
 });
 
 describe('loadPricing (fixture injection)', () => {
-  it('loads the hand-trimmed 3-model fixture', () => {
+  it('loads the hand-trimmed 4-model fixture', () => {
     const catalogue = loadPricing(FIXTURE_PATH);
-    expect([...catalogue.keys()].sort()).toEqual([DEEPSEEK, NEMOTRON, 'test/rounding-fixture'].sort());
+    expect([...catalogue.keys()].sort()).toEqual([DEEPSEEK, FLASH, NEMOTRON, 'test/rounding-fixture'].sort());
   });
 
   it('is memoised per path: two loads of the same path return the same Map instance', () => {

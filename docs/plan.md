@@ -1598,6 +1598,18 @@ Starts once every Wave 3 task is merged.
 - Acceptance: 1. ProfileSchema.parse({name:'x'}).tier1 is the Flash id; every built-in except strong-only carries it as tier1; strong-only unchanged. 2. Tests that pinned the old id are updated and pass. 3. Fixtures refreshed: strict replay, 1.0/1.0 on both synthetic fixtures, three-run proof, candidatesSeen reported before/after. 4. preflight passes. 5. The three docs carry the revised decision.
 - Out of scope: bench runs; rate-limit tuning; prompt changes.
 
+### T70: Hygiene after the tier-1 swap
+- Workstream: J
+- Model: haiku
+- Depends on: T69
+- Owns: test/fixtures/cache/** (prune), scripts/fixtures-refresh.ts (one log line), test/fixtures/models.min.json (one entry); pre-authorised edits: docs/plan.md (this block, index row, Counts line), docs/spec.md (one sentence in Tier routing), docs/model-selection.md (Next step section), scripts/fixtures-refresh.ts (stale log line)
+- Reads (must not edit): src/profiles/builtins.ts, src/profiles/schema.ts, test/integration/solve.test.ts, test/unit/candidates/cache.test.ts, test/contract/**
+- Spec sections: Candidate service; Testing
+- Deliverable: Five small clean-ups left by T69's review. (1) docs/spec.md's Tier routing sentence names the old tier-1 default; make it name deepseek-ai/DeepSeek-V4-Flash-0731 with '(T69)'. (2) docs/model-selection.md's 'Next step' still says the six-model benchmark remains worth running; replace with two sentences saying it was run (recall screen and puzzle-level bench, 2026-09-05, pointers to docs/benches/recall-screen.md and docs/benches/model-comparison.md) and the pair was revised. (3) scripts/fixtures-refresh.ts logs that promptVersion is frozen at "1"; change the message to report the profile's actual promptVersion at run time (read it from the resolved profile) and drop the stale B49 wording. (4) test/fixtures/models.min.json lacks deepseek-ai/DeepSeek-V4-Flash-0731; add its entry copied verbatim from models.json so tests resolving the default profile against the minimal catalogue work. (5) Prune committed cache entries no fixture or test replays: delete the tier-1 entries for nvidia/Nemotron-3_5-Lightning under test/fixtures/cache (the reviewer counted 211) but keep every entry any test needs: before deleting, run the integration suite and the unit suite offline in a container with the candidate directories removed and confirm they still pass; if any test depends on a Nemotron entry, keep exactly those and say which. Report before and after counts and sizes.
+- Decisions baked in: no behaviour change; the cache prune is verified by running the offline test suite in a --network none container before and after; models.min.json entry is verbatim.
+- Acceptance: 1. `grep -n 'Nemotron-3_5-Lightning' docs/spec.md` shows no sentence calling it the default. 2. model-selection.md Next step updated. 3. fixtures-refresh.ts prints the real promptVersion (unit test not required; show the changed line). 4. models.min.json parses and contains the Flash entry. 5. Integration and unit suites pass after the prune; cache count and size reported. 6. preflight passes.
+- Out of scope: docs/benches; anything under src/.
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1674,8 +1686,9 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T67 | Seed-only candidate recall eval across models | 6 | I | opus | T34,T47,T61 | scripts/eval-recall.ts, src/eval/recall.ts, tests, docs/benches/README.md paragraph |
 | T68 | Router: per-model reasoning-off value with fallback | 6 | E | sonnet | T49,T58 | llm/tierRouter.ts, llm/client.ts (retry path), tests, spike doc addendum |
 | T69 | Make DeepSeek-V4-Flash the default tier-1 model; refresh fixtures | 6 | E | sonnet | T65,T66,T67 | profiles schema default and builtins, tests, fixture cache and snapshots, model-selection doc, spec decision row |
+| T70 | Hygiene after the tier-1 swap | 6 | J | haiku | T69 | spec tier-routing sentence, model-selection next-step, fixtures-refresh warning, models.min.json, cache prune |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 11. Total 70, of which 68 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 12. Total 71, of which 69 are in v1 (M1-M5).
 
 Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 44.
 
@@ -1774,6 +1787,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T67 | done | b3d335a | wave 6 |
 | T68 | done | 9a6965e | wave 6 |
 | T69 | done | ef9b24d | wave 6 |
+| T70 | in progress | - | (hygiene after tier-1 swap) |
 
 ## Blocked
 
