@@ -26,7 +26,7 @@ describe('ProfileSchema', () => {
       repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
       budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
       rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
-      promptVersion: '2',
+      promptVersion: '3',
     });
   });
 

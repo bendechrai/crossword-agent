@@ -1,19 +1,33 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { openCandidateCache } from '../../../src/candidates/cache.js';
+import { createCandidateService } from '../../../src/candidates/service.js';
 import type { CandidateRequest } from '../../../src/candidates/types.js';
+import { isCliError } from '../../../src/cli/exit.js';
 import {
+  PAIRED_PROMPT_VERSION,
   PROMPT_VERSION,
+  PROMPT_VERSIONS,
+  isPromptVersion,
   promptKindFor,
+  promptVersionOf,
   renderBatchedSeedPrompt,
   renderPrompt,
+  templateFor,
+  type PromptVersion,
+  type RenderOptions,
   type RenderedPrompt,
 } from '../../../src/llm/prompts.js';
+import { resetRegistryForTests } from '../../../src/llm/rateLimiter.js';
+import type { InferenceLog, InferenceLogRecord } from '../../../src/llm/types.js';
 import { getBuiltins } from '../../../src/profiles/builtins.js';
-import { ProfileSchema } from '../../../src/profiles/schema.js';
+import { ProfileObject, ProfileSchema } from '../../../src/profiles/schema.js';
+import { singleBody, stubTransport } from '../../helpers/stubTransport.js';
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../fixtures/prompts/', import.meta.url));
 const SCHEMA_PATH = fileURLToPath(
@@ -34,15 +48,22 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * Golden files are committed and compared byte for byte. Regenerate them with
+ * Golden files are committed and compared byte for byte, one directory per
+ * rendered version (`test/fixtures/prompts/v2/`, `v3/`). Regenerate them with
  * `UPDATE_GOLDENS=1` in the same commit as any deliberate wording change, which
  * for a shipped promptVersion also means regenerating the cache (B49).
+ *
+ * The v2 files are frozen: version 2 stays selectable so the length self-check
+ * can be measured as a paired difference (T65), and a version whose bytes moved
+ * under it would measure nothing. A diff under `v2/` after a golden refresh is
+ * a bug, not an update.
  */
-function assertGolden(name: string, rendered: RenderedPrompt): string {
+function assertGolden(version: PromptVersion, name: string, rendered: RenderedPrompt): string {
   const text = serialise(rendered);
-  const path = `${GOLDEN_DIR}${name}`;
+  const dir = `${GOLDEN_DIR}v${version}/`;
+  const path = `${dir}${name}`;
   if (process.env['UPDATE_GOLDENS'] === '1') {
-    mkdirSync(GOLDEN_DIR, { recursive: true });
+    mkdirSync(dir, { recursive: true });
     writeFileSync(path, text, 'utf8');
   }
   expect(readFileSync(path, 'utf8')).toBe(text);
@@ -155,30 +176,67 @@ const ESCALATE_REQUEST = request({
   ],
 });
 
-const PLAIN = { inlineSchema: false };
-const INLINE = { inlineSchema: true };
+function plain(version: PromptVersion = PROMPT_VERSION): RenderOptions {
+  return { inlineSchema: false, version };
+}
 
-describe('PROMPT_VERSION', () => {
-  // B49: bumping this is a single-owner action that lands the regenerated cache
-  // and snapshots in the same commit. No feature task may bump it, and it is a
-  // bare digit, never "v2". T63 bumped it from "1" to "2" for the length
-  // self-check and the reworded clue_understood scale.
-  it('is the string "2" (T31 acceptance 6, as amended by T63)', () => {
-    expect(PROMPT_VERSION).toBe('2');
+function inline(version: PromptVersion = PROMPT_VERSION): RenderOptions {
+  return { inlineSchema: true, version };
+}
+
+/** The default version (3), which is what every unversioned assertion below is about. */
+const PLAIN = plain();
+const INLINE = inline();
+const PLAIN_V2 = plain('2');
+const INLINE_V2 = inline('2');
+
+describe('PROMPT_VERSION (T65)', () => {
+  // B49: moving this is a single-owner action that lands the regenerated cache
+  // and snapshots in the same commit. It is a bare digit, never "v3". T63
+  // bumped it from "1" to "2" for the length self-check and the reworded
+  // clue_understood scale; T65 moved it to "3", which is "2" without the
+  // self-check.
+  it('is the string "3", and "2" is still renderable for the paired measurement', () => {
+    expect(PROMPT_VERSION).toBe('3');
+    expect(PAIRED_PROMPT_VERSION).toBe('2');
+    expect(PROMPT_VERSIONS).toEqual(['2', '3']);
   });
 
-  // The bump is only real if it reaches the B23 cache key, which is built from
-  // `profile.promptVersion` (candidates/service.ts -> util/hash.cacheKey), and
-  // the inference log's copy in llm/client.ts. A bump that changed the prompt
-  // bytes and left those behind would leave every key unchanged, so a
-  // pre-existing cache would answer version-2 prompts with version-1
-  // responses and `xw cache clear --prompt-version` would target the wrong
-  // entries. So no other module may spell a version out.
-  it('is what every built-in profile and the schema default carry', () => {
+  it('recognises the versions it renders and no others', () => {
+    expect(isPromptVersion('2')).toBe(true);
+    expect(isPromptVersion('3')).toBe(true);
+    expect(isPromptVersion('1')).toBe(false);
+    expect(isPromptVersion('v3')).toBe(false);
+    for (const version of PROMPT_VERSIONS) expect(promptVersionOf(version)).toBe(version);
+  });
+
+  // A profile file may set any string. Rendering the default template under a
+  // key that claims another version would put one version's bytes behind
+  // another version's cache entries, so an unknown value is a usage error.
+  it('rejects a version it cannot render, as a usage error naming the known ones', () => {
+    let thrown: unknown;
+    try {
+      promptVersionOf('1');
+    } catch (e) {
+      thrown = e;
+    }
+    expect(isCliError(thrown)).toBe(true);
+    expect(String((thrown as Error).message)).toContain('1');
+  });
+
+  // The version is only real if it reaches the B23 cache key, which is built
+  // from `profile.promptVersion` (candidates/service.ts -> util/hash.cacheKey),
+  // and the inference log's copy in llm/client.ts. A default left behind would
+  // leave every key unchanged, so a pre-existing cache would answer version-3
+  // prompts with version-2 responses and `xw cache clear --prompt-version`
+  // would target the wrong entries. So no other module may spell a version out.
+  it('is what every built-in but baseline-pv2 carries, and the schema default', () => {
     const profiles = Object.values(getBuiltins());
-    expect(profiles).toHaveLength(12);
+    expect(profiles).toHaveLength(13);
     for (const profile of profiles) {
-      expect(profile.promptVersion).toBe(PROMPT_VERSION);
+      expect(profile.promptVersion).toBe(
+        profile.name === 'baseline-pv2' ? PAIRED_PROMPT_VERSION : PROMPT_VERSION,
+      );
     }
     expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PROMPT_VERSION);
   });
@@ -189,6 +247,7 @@ describe('PROMPT_VERSION', () => {
       if (file === PROMPTS_SOURCE) continue;
       const text = readFileSync(file, 'utf8');
       // `promptVersion: '1'`, `promptVersion = "2"`, `.default('1')` and so on.
+      // `baseline-pv2` is no exception: it carries `PAIRED_PROMPT_VERSION`.
       if (/promptVersion\s*[:=]\s*['"][0-9]+['"]|PROMPT_VERSION\s*=\s*['"][0-9]+['"]/.test(text)) {
         offenders.push(file);
       }
@@ -211,32 +270,39 @@ describe('promptKindFor (B23: three templates, six purposes)', () => {
   });
 });
 
-describe('golden files (acceptance 1)', () => {
+describe.each(PROMPT_VERSIONS)('golden files, version %s (acceptance 1)', (version) => {
+  const flat = plain(version);
+  const withSchema = inline(version);
+
   it('seed-single', () => {
-    assertGolden('seed-single.txt', renderPrompt(SEED_REQUEST, 'seed', PLAIN));
+    assertGolden(version, 'seed-single.txt', renderPrompt(SEED_REQUEST, 'seed', flat));
   });
 
   it('seed-batched-3', () => {
-    assertGolden('seed-batched-3.txt', renderBatchedSeedPrompt(BATCH_REQUESTS, PLAIN));
+    assertGolden(version, 'seed-batched-3.txt', renderBatchedSeedPrompt(BATCH_REQUESTS, flat));
   });
 
   // Re-ask and repair render the same template (B23), so these two goldens
   // differ only in their inputs. That is the point: the same prompt bytes mean
   // the same cache entry whichever pass asked for them.
   it('constrained-reask', () => {
-    assertGolden('constrained-reask.txt', renderPrompt(REASK_REQUEST, 'constrained', PLAIN));
+    assertGolden(version, 'constrained-reask.txt', renderPrompt(REASK_REQUEST, 'constrained', flat));
   });
 
   it('constrained-repair', () => {
-    assertGolden('constrained-repair.txt', renderPrompt(REPAIR_REQUEST, 'constrained', PLAIN));
+    assertGolden(
+      version,
+      'constrained-repair.txt',
+      renderPrompt(REPAIR_REQUEST, 'constrained', flat),
+    );
   });
 
   it('escalate', () => {
-    assertGolden('escalate.txt', renderPrompt(ESCALATE_REQUEST, 'escalate', PLAIN));
+    assertGolden(version, 'escalate.txt', renderPrompt(ESCALATE_REQUEST, 'escalate', flat));
   });
 
   it('seed-inline-schema', () => {
-    assertGolden('seed-inline-schema.txt', renderPrompt(SEED_REQUEST, 'seed', INLINE));
+    assertGolden(version, 'seed-inline-schema.txt', renderPrompt(SEED_REQUEST, 'seed', withSchema));
   });
 });
 
@@ -497,25 +563,43 @@ describe('inline schema variant (acceptance 7, B9)', () => {
   });
 });
 
-/** The line every single-clue template ends on: slot id, exact count, self-check. */
+/** The line every version-3 single-clue template ends on: slot id and exact count. */
 function lastAskLine(slotId: string, length: number): string {
+  return `Every answer for ${slotId} is exactly ${length} letters long.`;
+}
+
+/** The same line under version 2, which appends the count-and-drop self-check. */
+function lastAskLineV2(slotId: string, length: number): string {
   return (
     `Every answer for ${slotId} is exactly ${length} letters long: count each answer's letters ` +
     `into "notes" first, and put only the answers that come to ${length} into "candidates".`
   );
 }
 
+/** The self-check sentences version 3 drops, in the words version 2 used. */
+const SELF_CHECK_PHRASES = [
+  'Write "clue_understood" first, then "notes" as one short line holding one ANSWER=count entry per answer you mean to offer',
+  'delete it from "notes" and never write it into "candidates"',
+  'and you check that before you commit to it',
+  'count each answer',
+];
+
 /**
- * T63 acceptance 1. The bench's dominant rejection reason is a wrong-length
- * answer (85% of all rejections), from a prompt that stated the length once,
- * many lines above the answer. Both halves of the fix are asserted here: the
- * count is restated as the LAST line the model reads, and the self-check
- * ("count it, drop the ones that do not match") is in the system message of
- * all three templates.
+ * T65 acceptance 1. Version 3 keeps the restated exact length as the last line
+ * before the answer - length rejections did fall under version 2, from 85.5% to
+ * 65.4% of all rejections - and drops the count-and-drop self-check that
+ * followed it, which the paired decomposition in
+ * docs/benches/escalation-policy.md holds responsible for about three quarters
+ * of a real slot-level regression (35% fewer raw candidates and 41% fewer
+ * completion tokens per call, with short answers losing recall).
  */
-describe('length discipline (T63, acceptance 1)', () => {
+describe('length discipline, version 3 (T65, acceptance 1)', () => {
   const singles: ReadonlyArray<{ kind: string; rendered: RenderedPrompt; last: string }> = [
-    { kind: 'seed', rendered: renderPrompt(SEED_REQUEST, 'seed', PLAIN), last: lastAskLine('9A', 7) },
+    {
+      kind: 'seed',
+      rendered: renderPrompt(SEED_REQUEST, 'seed', PLAIN),
+      last: lastAskLine('9A', 7),
+    },
     {
       kind: 'constrained',
       rendered: renderPrompt(REASK_REQUEST, 'constrained', PLAIN),
@@ -534,15 +618,81 @@ describe('length discipline (T63, acceptance 1)', () => {
       expect(lines[lines.length - 1]).toBe(last);
     });
 
+    it(`${kind}: keeps a plain length rule and no self-check anywhere`, () => {
+      const system = systemText(rendered);
+      expect(system).toContain('- Every answer has exactly the number of letters the clue asks for.');
+      for (const phrase of SELF_CHECK_PHRASES) expect(flatten(rendered)).not.toContain(phrase);
+      expect(flatten(rendered)).not.toContain('ANSWER=count');
+    });
+  }
+
+  it('says "1 letter" rather than "1 letters" in the restatement too', () => {
+    const text = userText(renderPrompt(request({ length: 1, pattern: '?' }), 'seed', PLAIN));
+    expect(text.endsWith('is exactly 1 letter long.')).toBe(true);
+  });
+
+  it("ends the batched user message with the same rule, keyed to each clue's length", () => {
+    const lines = userText(renderBatchedSeedPrompt(BATCH_REQUESTS, PLAIN)).split('\n');
+    expect(lines[lines.length - 1]).toBe(
+      'Every answer is exactly as many letters as its own clue\'s "length" above.',
+    );
+  });
+
+  it('shows no per-candidate counts in any one-shot example', () => {
+    for (const system of [
+      systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE)),
+      systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE)),
+      systemText(renderPrompt(ESCALATE_REQUEST, 'escalate', INLINE)),
+    ]) {
+      expect(system).not.toMatch(/"notes": "[A-Z]+=\d/);
+      expect(system).not.toContain('HAVOC=5');
+    }
+  });
+
+  it('sends the crossing_suspect rule without the letter-count clause', () => {
+    const system = systemText(renderPrompt(ESCALATE_REQUEST, 'escalate', PLAIN));
+    expect(system).toContain('say so in "notes" as crossing_suspect: "<slotId>"');
+    expect(system).not.toContain('after the letter counts');
+  });
+});
+
+/**
+ * T63 acceptance 1, kept as the frozen description of what version 2 says: the
+ * paired measurement is only worth running while `baseline-pv2` still renders
+ * exactly the prompt the regression was measured on.
+ */
+describe('length discipline, version 2 (T63, unchanged)', () => {
+  const singles: ReadonlyArray<{ kind: string; rendered: RenderedPrompt; last: string }> = [
+    {
+      kind: 'seed',
+      rendered: renderPrompt(SEED_REQUEST, 'seed', PLAIN_V2),
+      last: lastAskLineV2('9A', 7),
+    },
+    {
+      kind: 'constrained',
+      rendered: renderPrompt(REASK_REQUEST, 'constrained', PLAIN_V2),
+      last: lastAskLineV2('12A', 5),
+    },
+    {
+      kind: 'escalate',
+      rendered: renderPrompt(ESCALATE_REQUEST, 'escalate', PLAIN_V2),
+      last: lastAskLineV2('6D', 3),
+    },
+  ];
+
+  for (const { kind, rendered, last } of singles) {
+    it(`${kind}: restates the exact letter count and the self-check as the last line`, () => {
+      const lines = userText(rendered).split('\n');
+      expect(lines[lines.length - 1]).toBe(last);
+    });
+
     it(`${kind}: carries the count-and-drop self-check in the system message`, () => {
       const system = systemText(rendered);
       expect(system).toContain(
         'Write "clue_understood" first, then "notes" as one short line holding one ANSWER=count ' +
           'entry per answer you mean to offer',
       );
-      expect(system).toContain(
-        'delete it from "notes" and never write it into "candidates"',
-      );
+      expect(system).toContain('delete it from "notes" and never write it into "candidates"');
       expect(system).toContain(
         'Every answer has exactly the number of letters the clue asks for, and you check that ' +
           'before you commit to it',
@@ -550,18 +700,8 @@ describe('length discipline (T63, acceptance 1)', () => {
     });
   }
 
-  it('says "1 letter" rather than "1 letters" in the restatement too', () => {
-    const text = userText(renderPrompt(request({ length: 1, pattern: '?' }), 'seed', PLAIN));
-    expect(
-      text.endsWith(
-        'is exactly 1 letter long: count each answer\'s letters into "notes" first, and put only ' +
-          'the answers that come to 1 into "candidates".',
-      ),
-    ).toBe(true);
-  });
-
-  it('ends the batched user message with the same rule, keyed to each clue\'s length', () => {
-    const lines = userText(renderBatchedSeedPrompt(BATCH_REQUESTS, PLAIN)).split('\n');
+  it("ends the batched user message with version 2's rule", () => {
+    const lines = userText(renderBatchedSeedPrompt(BATCH_REQUESTS, PLAIN_V2)).split('\n');
     expect(lines[lines.length - 1]).toBe(
       'Every answer is exactly as many letters as its own clue\'s "length" above: count each ' +
         'answer\'s letters into that result\'s "notes" first, and put only the answers that come ' +
@@ -571,8 +711,8 @@ describe('length discipline (T63, acceptance 1)', () => {
 
   it('shows the counts in every one-shot example, and the counts are right', () => {
     for (const system of [
-      systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE)),
-      systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE)),
+      systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE_V2)),
+      systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE_V2)),
     ]) {
       const notes = [...system.matchAll(/"notes": "([^"]+)"/g)].map((match) => match[1] ?? '');
       expect(notes.length).toBeGreaterThanOrEqual(2);
@@ -586,12 +726,70 @@ describe('length discipline (T63, acceptance 1)', () => {
   });
 
   it('keeps every example answer at the length its own example request asked for', () => {
-    const system = systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE));
+    const system = systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE_V2));
     // "Clue 2D: ..." is asked at 5 letters, "Clue 5D: Charge" at 4.
     expect(system).toContain('Clue 2D: Chaos and destruction');
     expect(system).toContain('Clue 5D: Charge');
-    expect(system).toContain(lastAskLine('2D', 5));
-    expect(system).toContain(lastAskLine('5D', 4));
+    expect(system).toContain(lastAskLineV2('2D', 5));
+    expect(system).toContain(lastAskLineV2('5D', 4));
+  });
+});
+
+/**
+ * The two versions differ in the self-check and in nothing else (T65 decision).
+ * Asserted as a diff rather than as prose: every line version 2 renders that
+ * version 3 does not, and the reverse, has to be one of the length lines.
+ */
+describe('version 3 is version 2 minus the self-prune', () => {
+  const cases: ReadonlyArray<[string, RenderedPrompt, RenderedPrompt]> = [
+    [
+      'seed',
+      renderPrompt(SEED_REQUEST, 'seed', INLINE_V2),
+      renderPrompt(SEED_REQUEST, 'seed', INLINE),
+    ],
+    [
+      'constrained',
+      renderPrompt(REASK_REQUEST, 'constrained', INLINE_V2),
+      renderPrompt(REASK_REQUEST, 'constrained', INLINE),
+    ],
+    [
+      'escalate',
+      renderPrompt(ESCALATE_REQUEST, 'escalate', INLINE_V2),
+      renderPrompt(ESCALATE_REQUEST, 'escalate', INLINE),
+    ],
+    [
+      'batched seed',
+      renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE_V2),
+      renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE),
+    ],
+  ];
+
+  /** Lines about answer length or the counts in "notes": the whole of the delta. */
+  function aboutLength(line: string): boolean {
+    return (
+      /letters?|length|count|ANSWER=|=\d|notes/i.test(line) ||
+      line.trim() === '' ||
+      line.trim() === '},' ||
+      line.trim() === '}'
+    );
+  }
+
+  for (const [name, v2, v3] of cases) {
+    it(`${name}: every line that differs is a length line`, () => {
+      const before = new Set(flatten(v2).split('\n'));
+      const after = new Set(flatten(v3).split('\n'));
+      const removed = [...before].filter((line) => !after.has(line));
+      const added = [...after].filter((line) => !before.has(line));
+      expect(removed.length).toBeGreaterThan(0);
+      for (const line of [...removed, ...added]) expect(aboutLength(line)).toBe(true);
+    });
+  }
+
+  it('the two templates disagree about their own version and nothing else structural', () => {
+    expect(templateFor('2').version).toBe('2');
+    expect(templateFor('3').version).toBe('3');
+    expect(templateFor('3').lengthRules).toHaveLength(1);
+    expect(templateFor('2').lengthRules).toHaveLength(2);
   });
 });
 
@@ -601,12 +799,16 @@ function exampleUnderstood(text: string): number[] {
 }
 
 /**
- * T63 acceptance 2. 5,258 of the 5,279 parsed seed responses on the canonical
- * bench reported exactly 0.9, which is the number version 1's single example
- * hard-coded, so the escalation trigger at 0.4 could never fire.
+ * T63 acceptance 2, and T65 acceptance 1: the scale and the varied examples are
+ * the half of version 2 that version 3 keeps, so both versions are asserted.
+ * 5,258 of the 5,279 parsed seed responses on the canonical bench reported
+ * exactly 0.9, which is the number version 1's single example hard-coded, so
+ * the escalation trigger at 0.4 could never fire; nothing in the paired
+ * decomposition implicated the fix for that, so it stays untouched.
  */
-describe('clue_understood guidance (T63, acceptance 2)', () => {
-  const system = systemText(renderPrompt(SEED_REQUEST, 'seed', INLINE));
+describe.each(PROMPT_VERSIONS)('clue_understood guidance, version %s', (version) => {
+  const withSchema = inline(version);
+  const system = systemText(renderPrompt(SEED_REQUEST, 'seed', withSchema));
 
   it('describes the scale in words rather than by example alone', () => {
     expect(system).toContain(
@@ -630,15 +832,17 @@ describe('clue_understood guidance (T63, acceptance 2)', () => {
   });
 
   it('varies the batched form\'s examples too, with one at or below 0.5', () => {
-    const values = exampleUnderstood(systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, INLINE)));
+    const values = exampleUnderstood(
+      systemText(renderBatchedSeedPrompt(BATCH_REQUESTS, withSchema)),
+    );
     expect(values).toEqual([1, 0.5]);
   });
 
   it('hard-codes 0.9 nowhere, in any template', () => {
     for (const kind of ['seed', 'constrained', 'escalate'] as const) {
-      expect(exampleUnderstood(systemText(renderPrompt(SEED_REQUEST, kind, INLINE)))).not.toContain(
-        0.9,
-      );
+      expect(
+        exampleUnderstood(systemText(renderPrompt(SEED_REQUEST, kind, withSchema))),
+      ).not.toContain(0.9);
     }
   });
 
@@ -686,5 +890,132 @@ describe('purity', () => {
   it('is ASCII only, so a golden file can be compared byte for byte', () => {
     const text = flatten(renderPrompt(SEED_REQUEST, 'seed', INLINE));
     expect([...text].find((character) => character.charCodeAt(0) > 127)).toBeUndefined();
+  });
+});
+
+
+/**
+ * T65 acceptance 2: the version a profile carries is the version that renders,
+ * and it is the same value the cache key is built from.
+ *
+ * This is the contract the whole paired measurement rests on. `baseline` and
+ * `baseline-pv2` are the same profile but for `promptVersion`, so if the
+ * service rendered from a module constant instead of the profile the two runs
+ * would send identical prompts; and if the key did not carry the version, the
+ * second run would be served the first run's cached answers. Asserted end to
+ * end through `createCandidateService` with a stubbed transport rather than on
+ * the renderer alone, because both halves live in the service.
+ */
+describe('the candidate service renders the profile version (T65, acceptance 2)', () => {
+  let cacheDir: string;
+
+  beforeEach(() => {
+    resetRegistryForTests();
+    cacheDir = mkdtempSync(join(tmpdir(), 'xw-t65-'));
+  });
+
+  afterEach(() => {
+    rmSync(cacheDir, { recursive: true, force: true });
+  });
+
+  const SERVICE_REQUEST: CandidateRequest = {
+    slotId: '1A',
+    clue: 'Chaos and destruction',
+    length: 5,
+    pattern: '?????',
+    style: 'american',
+    rejected: [],
+    tier: 1,
+    purpose: 'seed',
+    n: 3,
+    samples: 1,
+    sampleIndex: 0,
+  };
+
+  /** One seed call under one profile version; returns what was sent and under which key. */
+  async function askUnder(version: string): Promise<{ prompt: string; key: string }> {
+    const records: InferenceLogRecord[] = [];
+    const inferenceLog: InferenceLog = {
+      write(record) {
+        records.push(record);
+      },
+      close() {
+        // nothing to flush
+      },
+    };
+    const transport = stubTransport(singleBody([['HAVOC', 0.9]]));
+    const service = createCandidateService({
+      transport,
+      cache: openCandidateCache({ cacheDir }),
+      inferenceLog,
+      profile: ProfileObject.parse({ name: 't65', promptVersion: version }),
+      emit: () => {
+        // events are not what this test is about
+      },
+      runId: 'run-1',
+      puzzleId: 'puz-1',
+      offline: false,
+      offlineLenient: false,
+    });
+
+    await service.getCandidates(SERVICE_REQUEST);
+
+    const sent = transport.calls[0];
+    expect(sent).toBeDefined();
+    const record = records[0];
+    expect(record).toBeDefined();
+    expect(record?.promptVersion).toBe(version);
+    return {
+      prompt: (sent?.messages ?? []).map((message) => message.content).join('\n'),
+      key: record?.cacheKey ?? '',
+    };
+  }
+
+  it('sends version 2 for a pv2 profile, version 3 for the default, under different keys', async () => {
+    const v2 = await askUnder('2');
+    const v3 = await askUnder('3');
+
+    expect(v2.prompt).toContain('count each answer');
+    expect(v3.prompt).not.toContain('count each answer');
+    expect(v3.prompt).toContain('Every answer for 1A is exactly 5 letters long.');
+    expect(v2.prompt).not.toBe(v3.prompt);
+    expect(v2.key).not.toBe(v3.key);
+  });
+
+  it('renders the built-in profiles the same way: baseline is 3, baseline-pv2 is 2', () => {
+    const builtins = getBuiltins();
+    const baseline = builtins['baseline'];
+    const pv2 = builtins['baseline-pv2'];
+    expect(baseline?.promptVersion).toBe('3');
+    expect(pv2?.promptVersion).toBe('2');
+    const { name: _baselineName, ...baselineRest } = baseline ?? { name: '' };
+    const { name: _pv2Name, ...pv2Rest } = pv2 ?? { name: '' };
+    // Same profile but for the version: that is what makes the run paired.
+    expect({ ...pv2Rest, promptVersion: '3' }).toEqual(baselineRest);
+  });
+
+  it('refuses a profile carrying a version it cannot render', () => {
+    expect(() =>
+      createCandidateService({
+        transport: stubTransport(),
+        cache: openCandidateCache({ cacheDir }),
+        inferenceLog: {
+          write() {
+            // unused
+          },
+          close() {
+            // unused
+          },
+        },
+        profile: ProfileObject.parse({ name: 't65-bad', promptVersion: '1' }),
+        emit: () => {
+          // unused
+        },
+        runId: null,
+        puzzleId: null,
+        offline: false,
+        offlineLenient: false,
+      }),
+    ).toThrow(/promptVersion/);
   });
 });

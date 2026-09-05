@@ -1538,6 +1538,18 @@ Starts once every Wave 3 task is merged.
 - Acceptance: 1. sets contract test passes for modern-12 and the generic no-content rule. 2. docs/benches/SETS.md contains the exact fetch lines for all eight LA Times dates and the Guardian line. 3. `grep -n 'Crosshare' docs/crossword-sources.md` shows the robots.txt finding and the rejection. 4. preflight passes. 5. `git ls-files puzzles` prints nothing.
 - Out of scope: running any bench; code changes.
 
+### T65: promptVersion 3: drop the length self-prune; version 2 stays selectable
+- Workstream: E (prompting)
+- Model: opus
+- Depends on: T63
+- Owns: src/llm/prompts.ts, test/unit/llm/prompts.test.ts, test/fixtures/prompts/**, test/unit/profiles/builtins.test.ts (additions), test/fixtures/cache/**, test/fixtures/runs/**; pre-authorised: docs/plan.md (this block and its index row), src/profiles/schema.ts only if the promptVersion default or allowed values must change, src/profiles/builtins.ts for the new `baseline-pv2` built-in and the version every other built-in carries, src/candidates/service.ts only where the prompt template is selected, docs/spec.md only the sentences naming the current promptVersion.
+- Reads (must not edit): docs/benches/escalation-policy.md (section 'Decomposition of the drop'), src/llm/parser.ts, src/validate/normalise.ts
+- Spec sections: Candidate service (prompt shape); Strategy profiles
+- Deliverable: A paired analysis on eight modern puzzles attributed most of a real slot-level regression to promptVersion 2's count-and-drop self-check: the model returned 35% fewer raw candidates and 41% fewer completion tokens per call, and short answers lost recall. Implement promptVersion "3": identical to "2" except the self-check instruction (write each answer's letter count and drop mismatches) is removed from all three templates and the one-shot examples no longer show counts; keep the restated exact length immediately before the answer field and keep the clue_understood scale and varied examples from v2 unchanged. Make the template selectable by version: prompts.ts exports templates for "2" and "3" (v1 may be dropped), the candidate service selects by the profile's promptVersion, and the cache key uses the profile's promptVersion (confirm with a contract-level unit test that the same request under "2" and "3" produces different keys and different rendered prompts). Default promptVersion becomes "3" in the schema default and every built-in; add built-in `baseline-pv2` = baseline with promptVersion "2" for paired measurement (and a note that it exists for the experiment). Refresh the committed synthetic cache and snapshots under v3 (live refresh once, then FIXTURES_REFRESH_OFFLINE_ONLY=1; three fresh --network none replays identical; both fixtures strict; accuracy must stay at 1.0/1.0 on both; report candidatesSeen before/after).
+- Decisions baked in: v3 is v2 minus the self-prune; nothing else in the prompt text changes so the paired measurement isolates that instruction; promptVersion is a profile field and a cache-key field; builtins count test updated.
+- Acceptance: 1. prompts tests: v3 templates contain the exact-length restatement and the clue_understood scale and do not contain the self-check sentence or per-candidate counts; v2 templates unchanged from their goldens. 2. A unit test shows the candidate service renders v2 when profile.promptVersion is "2" and v3 for "3", with distinct cache keys. 3. builtins tests: default "3" everywhere except baseline-pv2 ("2"); ProfileSchema parses all. 4. Fixtures refreshed, strict replay, 1.0/1.0 on both synthetic fixtures, three-run proof. 5. preflight passes. 6. docs/spec.md names promptVersion 3 and mentions baseline-pv2.
+- Out of scope: bench runs; T62 policy changes.
+
 ## Task index
 
 The orchestrator dispatches from this table. `Owns` is abbreviated; the task section is authoritative.
@@ -1609,8 +1621,9 @@ The orchestrator dispatches from this table. `Owns` is abbreviated; the task sec
 | T62 | Make the constrained re-ask fire before escalation; spend tier-2 on constrained slots | 6 | G | opus | T18,T37,T38,T44 | policy/escalation.ts, solver/hooks.ts, solver/search.ts, profiles/builtins.ts, tests |
 | T63 | Seed prompt: length discipline and unanchored clue_understood (promptVersion 2) | 6 | E | opus | T31,T49,T58 | llm/prompts.ts, prompt tests and goldens, fixture cache refresh |
 | T64 | modern-12 bench set with fetch recipe; modern-source documentation | 6 | J | sonnet | T57,T60 | sets/modern-12.json, docs/benches/SETS.md, sets contract test, docs/crossword-sources.md, docs/benches/README.md, README.md |
+| T65 | promptVersion 3: drop the length self-prune; v2 selectable | 6 | E | opus | T63 | llm/prompts.ts, profiles (promptVersion field, baseline-pv2 built-in), tests, fixture refresh |
 
-Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 6. Total 65, of which 63 are in v1 (M1-M5).
+Counts: Wave 0 = 1, Wave 1 = 23, Wave 2 = 18, Wave 3 = 9, Wave 4 = 5 (2 deferred), Wave 5 = 3, Wave 6 = 7. Total 66, of which 64 are in v1 (M1-M5).
 
 Model split: opus 11 (T0, T4, T11, T31, T34, T36, T37, T38, T42, T44, T53 - contracts, the trail, the parser, prompt design, the candidate service, AC-3, search, hooks, repair, orchestration and calibration fitting), haiku 2 (T2, T52), sonnet 42.
 

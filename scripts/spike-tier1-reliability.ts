@@ -32,7 +32,7 @@ import type { CandidateRequest, PromptKind } from '../src/candidates/types.js';
 import { adapterFor } from '../src/puzzle/adapters/index.js';
 import { getBuiltin } from '../src/profiles/builtins.js';
 import { route } from '../src/llm/tierRouter.js';
-import { renderPrompt } from '../src/llm/prompts.js';
+import { promptVersionOf, renderPrompt } from '../src/llm/prompts.js';
 import { parseCandidateResponse } from '../src/llm/parser.js';
 import { normaliseAnswer } from '../src/validate/normalise.js';
 import { createNebiusTransport } from '../src/llm/client.js';
@@ -442,7 +442,10 @@ function buildLlmRequest(
 ): { request: LlmRequest; model: string } {
   const routed = route(req, profile);
   const promptKind: PromptKind = 'seed';
-  const rendered = renderPrompt(req, promptKind, { inlineSchema: routed.inlineSchema });
+  const rendered = renderPrompt(req, promptKind, {
+    inlineSchema: routed.inlineSchema,
+    version: promptVersionOf(profile.promptVersion),
+  });
   const request: LlmRequest = { ...routed.request, messages: rendered.messages };
   if (extraOverride !== undefined) {
     if (Object.keys(extraOverride).length > 0) request.extra = extraOverride;
@@ -689,7 +692,10 @@ async function main(): Promise<void> {
     log.info(`  tier-2 model ${TIER2_MODEL} supportsStructuredOutputs=${String(capabilities.supportsStructuredOutputs)}`);
 
     const routed = route(schemaReq, { ...profile, tier1: TIER1_MODEL, tier2: TIER2_MODEL });
-    const rendered = renderPrompt(schemaReq, 'seed', { inlineSchema: routed.inlineSchema });
+    const rendered = renderPrompt(schemaReq, 'seed', {
+      inlineSchema: routed.inlineSchema,
+      version: promptVersionOf(profile.promptVersion),
+    });
 
     // The raw schema document, read independently of `routed.request` (whose
     // `responseFormat` is typed `unknown`) so trial B can nest it inside a
