@@ -1731,6 +1731,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T63 | done | 14c3288 | wave 6; rebased over T62; 5x5 fixture clue made unambiguous |
 | T64 | done | 360bf05 | wave 6 |
 | T65 | done | e4205b9 | wave 6 |
+| T66 | done | 5cf6bdf | wave 6 |
 
 ## Blocked
 
