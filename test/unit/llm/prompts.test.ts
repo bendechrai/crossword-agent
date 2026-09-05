@@ -232,7 +232,8 @@ describe('PROMPT_VERSION (T65)', () => {
   // would target the wrong entries. So no other module may spell a version out.
   it('is what every built-in but baseline-pv3 carries, and the schema default', () => {
     const profiles = Object.values(getBuiltins());
-    expect(profiles).toHaveLength(13);
+    // 13 before T71, which added max-accuracy and strong-only-uncapped.
+    expect(profiles).toHaveLength(15);
     for (const profile of profiles) {
       expect(profile.promptVersion).toBe(
         profile.name === 'baseline-pv3' ? PROMPT_VERSION : PAIRED_PROMPT_VERSION,

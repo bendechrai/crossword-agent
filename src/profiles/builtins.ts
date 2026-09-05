@@ -6,14 +6,21 @@ import type { Profile } from './schema.js';
  * T23 (B8): every built-in as a complete literal object typechecked against
  * `Profile` - `baseline`, `baseline-pv3`, `eager-escalation`, `patient`,
  * `no-repair`, `tier1-only`, `strong-only`, `votes3`, `batch1`, `batch2`,
- * `batch3`, `batch5`, `batch8`.
+ * `batch3`, `batch5`, `batch8`, `max-accuracy`, `strong-only-uncapped`.
  *
  * `maxTier2CallsPerPuzzle` is 25 rather than the schema default of 15 (T62):
  * the canonical bench spent the 15 on all-`?` escalations at termination, and
  * once the constrained re-ask fires first the cap has to cover the slots that
  * genuinely reach tier 2 with letters on the board (about 20% of the slots of
  * a 15x15, which is what the algorithms doc's "start at 15" was aiming at).
- * `tier1-only` keeps 0, which is what makes it tier-1 only.
+ * `tier1-only` keeps 0, which is what makes it tier-1 only, and T71's two
+ * uncapped profiles raise it to 200, which is a runaway guard rather than a
+ * policy.
+ *
+ * `constrainedSamples` and `reasoning` (T71) are the two optional `Profile`
+ * fields, and only `max-accuracy` and `strong-only-uncapped` write them: an
+ * absent field means the documented default (`src/profiles/schema.ts`), which
+ * is what every built-in below did before T71 and still does.
  *
  * `tier1` is `deepseek-ai/DeepSeek-V4-Flash-0731` on every built-in below
  * except `strong-only` (T69, replacing `nvidia/Nemotron-3_5-Lightning`):
@@ -360,6 +367,88 @@ export const batch8 = {
 } satisfies Profile;
 
 /**
+ * T71. Everything the levers allow, for the runs where the answer matters
+ * more than the bill: `strong-only`'s models (the strong model in both
+ * tiers), caps lifted far enough that no cap is what ends the run, reasoning
+ * turned on for the constrained and escalate templates, and three samples of
+ * every constrained ask merged by vote.
+ *
+ * The caps are lifted rather than removed: 200 tier-2 calls, 2 escalations
+ * and 3 re-asks per slot, 1,000 backtracks, 200 repair calls and a 2.0 USD /
+ * 10M token budget are ceilings a 15x15 does not reach in practice, so the
+ * run ends because the search is done rather than because a counter ran out,
+ * while a runaway still stops. Everything not named here is `baseline`'s,
+ * including `sampling` (a constrained call takes its token budget from
+ * `reasoning.constrainedMaxTokens` instead) and `rateLimit`.
+ *
+ * This is the profile the accuracy question is asked with; `strong-only`
+ * (models only) and `strong-only-uncapped` (models and caps, no reasoning and
+ * no sampling) are the two controls that say how much of any gain came from
+ * the caps and how much from the two new levers.
+ */
+export const maxAccuracy = {
+  name: 'max-accuracy',
+  tier1: 'deepseek-ai/DeepSeek-V4-Pro',
+  tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+  candidatesPerAsk: 10,
+  calibration: 'rank',
+  samples: 1,
+  batchSize: 1,
+  reasksPerSlot: 3,
+  constrainedSamples: 3,
+  reasoning: { constrainedEffort: 'medium', constrainedMaxTokens: 2048 },
+  sampling: { temperature: 0.2, maxTokens: 512 },
+  escalation: {
+    policy: 'reask-first',
+    clueUnderstoodThreshold: 0.4,
+    maxTier2CallsPerPuzzle: 200,
+    escalationsPerSlot: 2,
+  },
+  search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 1000 },
+  repair: { enabled: true, maxCalls: 200, maxEditDistance: 2 },
+  budget: { usd: 2.0, tokens: 10_000_000, wallMs: 900_000 },
+  rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+  promptVersion: PAIRED_PROMPT_VERSION,
+} satisfies Profile;
+
+/**
+ * T71's control for `max-accuracy`: `strong-only` with the same lifted caps
+ * and the same budget, but reasoning off on constrained calls and one sample
+ * per ask - so a bench of the two separates what the caps bought from what
+ * the reasoning and the votes bought. It keeps `strong-only`'s
+ * `rateLimit.maxConcurrencyTier1` of 16, being that profile plus the caps.
+ *
+ * Both new fields are written out at their default values rather than left
+ * absent, for the same reason every other field of every other built-in is
+ * written out: a reader comparing this profile with `max-accuracy` should see
+ * the two levers side by side, not have to know what an absent field means.
+ */
+export const strongOnlyUncapped = {
+  name: 'strong-only-uncapped',
+  tier1: 'deepseek-ai/DeepSeek-V4-Pro',
+  tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+  candidatesPerAsk: 10,
+  calibration: 'rank',
+  samples: 1,
+  batchSize: 1,
+  reasksPerSlot: 3,
+  constrainedSamples: 1,
+  reasoning: { constrainedEffort: 'none', constrainedMaxTokens: 2048 },
+  sampling: { temperature: 0.2, maxTokens: 512 },
+  escalation: {
+    policy: 'reask-first',
+    clueUnderstoodThreshold: 0.4,
+    maxTier2CallsPerPuzzle: 200,
+    escalationsPerSlot: 2,
+  },
+  search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 1000 },
+  repair: { enabled: true, maxCalls: 200, maxEditDistance: 2 },
+  budget: { usd: 2.0, tokens: 10_000_000, wallMs: 900_000 },
+  rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 16, maxConcurrencyTier2: 16 },
+  promptVersion: PAIRED_PROMPT_VERSION,
+} satisfies Profile;
+
+/**
  * Keyed by the CLI-facing / `Profile.name` spelling, e.g.
  * `xw solve --profile eager-escalation`.
  *
@@ -389,6 +478,8 @@ const BUILTINS: ReadonlyMap<string, Profile> = new Map<string, Profile>([
   ['batch3', batch3],
   ['batch5', batch5],
   ['batch8', batch8],
+  ['max-accuracy', maxAccuracy],
+  ['strong-only-uncapped', strongOnlyUncapped],
 ]);
 
 /**
