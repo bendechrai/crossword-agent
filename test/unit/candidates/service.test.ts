@@ -17,7 +17,8 @@ import type { InferenceLog, InferenceLogRecord } from '../../../src/llm/types.js
 import { ProfileObject, type Profile } from '../../../src/profiles/schema.js';
 import { batchedBody, singleBody, stubTransport, type StubTransport } from '../../helpers/stubTransport.js';
 
-const TIER1_MODEL = 'nvidia/Nemotron-3_5-Lightning';
+// T69: tracks ProfileObject's tier1 default (deepseek-ai/DeepSeek-V4-Flash-0731).
+const TIER1_MODEL = 'deepseek-ai/DeepSeek-V4-Flash-0731';
 
 let cacheDir: string;
 

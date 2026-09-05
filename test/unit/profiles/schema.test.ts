@@ -8,7 +8,7 @@ describe('ProfileSchema', () => {
     const profile = ProfileSchema.parse({ name: 'baseline' });
     expect(profile).toEqual({
       name: 'baseline',
-      tier1: 'nvidia/Nemotron-3_5-Lightning',
+      tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
       tier2: 'deepseek-ai/DeepSeek-V4-Pro',
       candidatesPerAsk: 10,
       calibration: 'rank',
@@ -39,6 +39,15 @@ describe('ProfileSchema', () => {
     // again (T66).
     expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PAIRED_PROMPT_VERSION);
     expect(PAIRED_PROMPT_VERSION).toMatch(/^[0-9]+$/);
+  });
+
+  // T69: the puzzle-level bench (docs/benches/model-comparison.md) found
+  // deepseek-ai/DeepSeek-V4-Flash-0731 beats the prior default
+  // (nvidia/Nemotron-3_5-Lightning) on letters accuracy on the american
+  // stratum (0.80 vs 0.58) at about half the cost, winning 24 of 24 paired
+  // repeats. The old model stays selectable by writing tier1 explicitly.
+  it('defaults tier1 to deepseek-ai/DeepSeek-V4-Flash-0731', () => {
+    expect(ProfileSchema.parse({ name: 'x' }).tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
   });
 
   it('rejects votes calibration without three samples at temperature 0.7', () => {
