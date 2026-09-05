@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ExitCode, isCliError } from '../../../src/cli/exit.js';
+import { PAIRED_PROMPT_VERSION, PROMPT_VERSION } from '../../../src/llm/prompts.js';
 import {
   baseline,
   baselinePv3,
@@ -13,14 +14,19 @@ import {
   eagerEscalation,
   getBuiltin,
   getBuiltins,
+  maxAccuracy,
   noRepair,
   patient,
   strongOnly,
+  strongOnlyUncapped,
   tier1Only,
   votes3,
 } from '../../../src/profiles/builtins.js';
-import { ProfileSchema } from '../../../src/profiles/schema.js';
+import { ProfileSchema, constrainedSamplesOf, reasoningOf } from '../../../src/profiles/schema.js';
 import type { Profile } from '../../../src/profiles/schema.js';
+
+/** T71's two additions, which most of the pre-T71 assertions below exclude. */
+const T71_NAMES = ['max-accuracy', 'strong-only-uncapped'];
 
 const EXPECTED_NAMES = [
   'baseline',
@@ -36,6 +42,7 @@ const EXPECTED_NAMES = [
   'batch3',
   'batch5',
   'batch8',
+  ...T71_NAMES,
 ];
 
 /** Every built-in field that a spec test below asserts differs from `baseline`. */
@@ -70,9 +77,327 @@ const PROTOTYPE_MEMBER_NAMES = [
   'isPrototypeOf',
 ];
 
+/**
+ * T71's proof that the pre-existing built-ins did not move: every one of the
+ * thirteen literals as it stood before this task, copied verbatim from
+ * `src/profiles/builtins.ts` at the parent commit, so a deep-equal against
+ * the live module catches any field that changed, was added or was dropped.
+ *
+ * The two new optional fields (`constrainedSamples` and `reasoning`) are
+ * absent here because they are absent from those profiles: an absent field
+ * means the documented default (`src/profiles/schema.ts`), which is what
+ * keeps the frozen run-record schema and the frozen contract suite valid.
+ */
+const PRE_T71_LITERALS: Record<string, Profile> = {
+  'baseline': {
+    name: 'baseline',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'baseline-pv3': {
+    name: 'baseline-pv3',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PROMPT_VERSION,
+  },
+  'eager-escalation': {
+    name: 'eager-escalation',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 0,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'eager',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'patient': {
+    name: 'patient',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 3,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'patient',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 500 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'no-repair': {
+    name: 'no-repair',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: false, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'tier1-only': {
+    name: 'tier1-only',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 0,
+      escalationsPerSlot: 0,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'strong-only': {
+    name: 'strong-only',
+    tier1: 'deepseek-ai/DeepSeek-V4-Pro',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 2.0, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 16, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'votes3': {
+    name: 'votes3',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'votes',
+    samples: 3,
+    batchSize: 1,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.7, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'batch1': {
+    name: 'batch1',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 1,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'batch2': {
+    name: 'batch2',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 2,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'batch3': {
+    name: 'batch3',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 3,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'batch5': {
+    name: 'batch5',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 5,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+  'batch8': {
+    name: 'batch8',
+    tier1: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    tier2: 'deepseek-ai/DeepSeek-V4-Pro',
+    candidatesPerAsk: 10,
+    calibration: 'rank',
+    samples: 1,
+    batchSize: 8,
+    reasksPerSlot: 2,
+    sampling: { temperature: 0.2, maxTokens: 512 },
+    escalation: {
+      policy: 'reask-first',
+      clueUnderstoodThreshold: 0.4,
+      maxTier2CallsPerPuzzle: 25,
+      escalationsPerSlot: 1,
+    },
+    search: { ordering: 'margin', ldsLimitStart: 0, ldsLimitMax: 3, maxBacktracks: 200 },
+    repair: { enabled: true, maxCalls: 30, maxEditDistance: 2 },
+    budget: { usd: 0.5, tokens: 2_000_000, wallMs: 900_000 },
+    rateLimit: { rpsFraction: 0.9, maxConcurrencyTier1: 8, maxConcurrencyTier2: 16 },
+    promptVersion: PAIRED_PROMPT_VERSION,
+  },
+};
+
 describe('builtins', () => {
-  it('builtinNames() lists exactly the thirteen documented names', () => {
+  it('builtinNames() lists exactly the fifteen documented names', () => {
     expect(builtinNames().sort()).toEqual([...EXPECTED_NAMES].sort());
+  });
+
+  // T65 pinned the built-in count in test/unit/llm/prompts.test.ts, so that its
+  // promptVersion loop could not quietly pass over an empty set. T71 added two
+  // built-ins, and re-pinning a count in a T65-owned file for every profile a
+  // later task adds is the wrong home for it: the pin belongs beside the name
+  // list it restates, which is here. So this test carries both halves of what
+  // that one asserted - the count, and the version every entry must be on.
+  it('getBuiltins() returns fifteen profiles, each on a version prompts.ts renders', () => {
+    const profiles = Object.values(getBuiltins());
+    expect(profiles).toHaveLength(15);
+    expect(profiles).toHaveLength(EXPECTED_NAMES.length);
+    for (const profile of profiles) {
+      expect(profile.promptVersion, `${profile.name} promptVersion`).toBe(
+        profile.name === 'baseline-pv3' ? PROMPT_VERSION : PAIRED_PROMPT_VERSION,
+      );
+    }
+    expect(ProfileSchema.parse({ name: 'x' }).promptVersion).toBe(PAIRED_PROMPT_VERSION);
   });
 
   it('getBuiltins() returns the same set, keyed by name', () => {
@@ -223,6 +548,9 @@ describe('builtins', () => {
     expect(eagerEscalation.escalation.maxTier2CallsPerPuzzle).toBe(25);
     expect(patient.escalation.maxTier2CallsPerPuzzle).toBe(25);
     for (const [name, profile] of Object.entries(getBuiltins())) {
+      // T71's two profiles lift the cap to 200 deliberately; every other
+      // built-in still carries T62's 25, and tier1-only its 0.
+      if (T71_NAMES.includes(name)) continue;
       expect(
         profile.escalation.maxTier2CallsPerPuzzle,
         `${name} tier-2 allowance`,
@@ -247,8 +575,11 @@ describe('builtins', () => {
     expect(baseline.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
     expect(tier1Only.tier1).toBe('deepseek-ai/DeepSeek-V4-Flash-0731');
     for (const [name, profile] of Object.entries(getBuiltins())) {
+      // T71's two profiles run the strong model in both tiers, like
+      // strong-only, which is the point of them.
+      const strongTier1 = name === 'strong-only' || T71_NAMES.includes(name);
       expect(profile.tier1, `${name} tier1`).toBe(
-        name === 'strong-only' ? 'deepseek-ai/DeepSeek-V4-Pro' : 'deepseek-ai/DeepSeek-V4-Flash-0731',
+        strongTier1 ? 'deepseek-ai/DeepSeek-V4-Pro' : 'deepseek-ai/DeepSeek-V4-Flash-0731',
       );
     }
   });
@@ -284,5 +615,123 @@ describe('builtins', () => {
     const { batchSize: _batchSize, name: _name, ...rest } = profile;
     const { batchSize: _baselineBatchSize, name: _baselineName, ...baselineRest } = baseline;
     expect(rest).toEqual(baselineRest);
+  });
+});
+
+describe('builtins: T71 additions', () => {
+  // Acceptance 4, the strong half: not "nothing important changed" but
+  // "nothing changed at all", field by field, against the literals as they
+  // stood before this task.
+  it.each(Object.keys(PRE_T71_LITERALS))('%s is byte-for-byte its pre-T71 literal', (name) => {
+    expect(getBuiltin(name)).toEqual(PRE_T71_LITERALS[name]);
+  });
+
+  it('leaves both new fields absent on every pre-T71 built-in', () => {
+    for (const [name, profile] of Object.entries(getBuiltins())) {
+      if (T71_NAMES.includes(name)) continue;
+      expect(profile.reasoning, `${name} reasoning`).toBeUndefined();
+      expect(profile.constrainedSamples, `${name} constrainedSamples`).toBeUndefined();
+      // Absent still reads as the pre-T71 behaviour: no sampling, no reasoning.
+      expect(constrainedSamplesOf(profile)).toBe(1);
+      expect(reasoningOf(profile).constrainedEffort).toBe('none');
+    }
+  });
+
+  it.each(T71_NAMES)('%s parses through ProfileSchema', (name) => {
+    expect(() => ProfileSchema.parse(getBuiltin(name))).not.toThrow();
+  });
+
+  it('max-accuracy carries the strong model in both tiers and the lifted caps', () => {
+    expect(maxAccuracy.name).toBe('max-accuracy');
+    expect(maxAccuracy.tier1).toBe('deepseek-ai/DeepSeek-V4-Pro');
+    expect(maxAccuracy.tier2).toBe('deepseek-ai/DeepSeek-V4-Pro');
+    expect(maxAccuracy.escalation.maxTier2CallsPerPuzzle).toBe(200);
+    expect(maxAccuracy.escalation.escalationsPerSlot).toBe(2);
+    expect(maxAccuracy.reasksPerSlot).toBe(3);
+    expect(maxAccuracy.search.maxBacktracks).toBe(1000);
+    expect(maxAccuracy.repair.maxCalls).toBe(200);
+    expect(maxAccuracy.repair.maxEditDistance).toBe(2);
+    expect(maxAccuracy.budget.usd).toBe(2.0);
+    expect(maxAccuracy.budget.tokens).toBe(10_000_000);
+    expect(maxAccuracy.promptVersion).toBe(baseline.promptVersion);
+  });
+
+  it('max-accuracy turns both new levers on', () => {
+    expect(constrainedSamplesOf(maxAccuracy)).toBe(3);
+    expect(reasoningOf(maxAccuracy)).toEqual({
+      constrainedEffort: 'medium',
+      constrainedMaxTokens: 2048,
+    });
+  });
+
+  it('max-accuracy differs from baseline only in the documented fields', () => {
+    const changed = new Set(
+      Object.keys(maxAccuracy).filter(
+        (key) =>
+          JSON.stringify(maxAccuracy[key as keyof typeof maxAccuracy]) !==
+          JSON.stringify(baseline[key as keyof typeof baseline]),
+      ),
+    );
+    expect([...changed].sort()).toEqual(
+      [
+        'budget',
+        'constrainedSamples',
+        'escalation',
+        'name',
+        'reasksPerSlot',
+        'reasoning',
+        'repair',
+        'search',
+        'tier1',
+      ].sort(),
+    );
+    // Everything not lifted is baseline's, including the seed token budget.
+    expect(maxAccuracy.sampling).toEqual(baseline.sampling);
+    expect(maxAccuracy.rateLimit).toEqual(baseline.rateLimit);
+    expect(maxAccuracy.candidatesPerAsk).toBe(baseline.candidatesPerAsk);
+    expect(maxAccuracy.calibration).toBe(baseline.calibration);
+    expect(maxAccuracy.samples).toBe(baseline.samples);
+    expect(maxAccuracy.batchSize).toBe(baseline.batchSize);
+  });
+
+  // The control: same models, same lifted caps, neither new lever. A bench of
+  // the two attributes any difference to the reasoning and the votes alone.
+  it('strong-only-uncapped is max-accuracy with both levers off', () => {
+    expect(constrainedSamplesOf(strongOnlyUncapped)).toBe(1);
+    expect(reasoningOf(strongOnlyUncapped).constrainedEffort).toBe('none');
+    const {
+      name: _name,
+      reasoning: _reasoning,
+      constrainedSamples: _samples,
+      rateLimit: _rateLimit,
+      ...uncappedRest
+    } = strongOnlyUncapped;
+    const {
+      name: _maxName,
+      reasoning: _maxReasoning,
+      constrainedSamples: _maxSamples,
+      rateLimit: _maxRateLimit,
+      ...maxRest
+    } = maxAccuracy;
+    expect(uncappedRest).toEqual(maxRest);
+  });
+
+  it('strong-only-uncapped keeps strong-only rate limits and lifts its caps', () => {
+    expect(strongOnlyUncapped.rateLimit).toEqual(strongOnly.rateLimit);
+    expect(strongOnlyUncapped.tier1).toBe(strongOnly.tier1);
+    expect(strongOnlyUncapped.tier2).toBe(strongOnly.tier2);
+    expect(strongOnlyUncapped.budget.usd).toBe(2.0);
+    expect(strongOnlyUncapped.budget.tokens).toBe(10_000_000);
+    expect(strongOnlyUncapped.escalation.maxTier2CallsPerPuzzle).toBe(200);
+    expect(strongOnlyUncapped.search.maxBacktracks).toBe(1000);
+    expect(strongOnlyUncapped.repair.maxCalls).toBe(200);
+  });
+
+  it('both new profiles are deep-copied out of the module like every other', () => {
+    const first = getBuiltin('max-accuracy');
+    expect(first.reasoning).toBeDefined();
+    if (first.reasoning !== undefined) first.reasoning.constrainedEffort = 'high';
+    expect(getBuiltin('max-accuracy').reasoning?.constrainedEffort).toBe('medium');
+    expect(maxAccuracy.reasoning.constrainedEffort).toBe('medium');
   });
 });
