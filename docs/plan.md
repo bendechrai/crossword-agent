@@ -1815,6 +1815,7 @@ Network-touching tasks: **T49** and **T50** only. Every other task must pass wit
 | T69 | done | ef9b24d | wave 6 |
 | T70 | done | bbbb821 | wave 6; pricing test key-set edit ratified |
 | T71 | done | 3c6d749 | wave 6 |
+| T72 | done | 748b6ec | wave 6 |
 
 ## Blocked
 
